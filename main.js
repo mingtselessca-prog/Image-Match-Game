@@ -4,8 +4,8 @@ if (!window.supabase) {
 }
 
 // Supabase 配置
-const SUPABASE_URL = 'https://lnuguottscfwsmthmrkv.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_kywRcUbkTQza7NwH8N4_Fg_oE0h4tSj';
+const SUPABASE_URL = 'https://ikitjbmcwbibuhcmssog.supabase.co/';
+const SUPABASE_ANON_KEY = 'sb_publishable_xV5gujLtBb5I6UK-hQtE-Q_x5IHpAE4';
 
 // 初始化 Supabase 客戶端
 let supabaseClient;
@@ -34,8 +34,8 @@ try {
 }
 
 // Google Custom Search API 配置
-const GOOGLE_API_KEY = 'AIzaSyDr_AXqYOMKlLTzqCwKzDM9o34sP3HmPS4';
-const SEARCH_ENGINE_ID = '352d6a09646db440e';
+const GOOGLE_API_KEY = 'AIzaSyB37BqSqIS4hYARNgua_O20LWmRnyoYwNs';
+const SEARCH_ENGINE_ID = '675a319b3d04d4973';
 
 document.getElementById('searchButton').addEventListener('click', () => {
     searchImages(1); // 重置到第一頁

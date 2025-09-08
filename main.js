@@ -223,51 +223,91 @@ async function saveImageToSupabase(imageUrl, searchTerm) {
         const timestamp = Date.now();
         const fileName = `${searchTerm}_${timestamp}.jpg`;
         
-        // 获取图片数据
+        // 获取图片数据 - 改進的獲取方式
         let blob;
-        try {
-            // 先嘗試直接獲取圖片
-            const response = await fetch(imageUrl, {
-                mode: 'cors',
-                headers: {
-                    'Access-Control-Allow-Origin': '*'
-                }
-            });
-            
-            if (!response.ok) {
-                throw new Error('直接獲取圖片失敗');
-            }
-            
+        
+        // 檢查是否是 data URL（直接處理）
+        if (imageUrl.startsWith('data:image/')) {
+            console.log('處理 data URL');
+            const response = await fetch(imageUrl);
             blob = await response.blob();
-        } catch (error) {
-            console.log('直接獲取失敗，嘗試使用圖片元素獲取:', error);
-            
-            // 如果直接獲取失敗，使用圖片元素獲取
-            blob = await new Promise((resolve, reject) => {
-                const img = new Image();
-                img.crossOrigin = 'anonymous';
-                
-                img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = img.width;
-                    canvas.height = img.height;
-                    const ctx = canvas.getContext('2d');
-                    
-                    try {
-                        ctx.drawImage(img, 0, 0);
-                        canvas.toBlob(resolve, 'image/jpeg', 0.95);
-                    } catch (e) {
-                        reject(new Error('圖片處理失敗: ' + e.message));
+        } 
+        // 檢查是否是 blob URL（直接處理）
+        else if (imageUrl.startsWith('blob:')) {
+            console.log('處理 blob URL');
+            const response = await fetch(imageUrl);
+            blob = await response.blob();
+        }
+        // 處理網絡圖片 URL
+        else {
+            try {
+                // 先嘗試直接獲取圖片（適用於允許跨域的圖片）
+                console.log('嘗試直接獲取網絡圖片');
+                const response = await fetch(imageUrl, {
+                    mode: 'cors',
+                    headers: {
+                        'Accept': 'image/*',
                     }
-                };
+                });
                 
-                img.onerror = () => {
-                    reject(new Error('圖片載入失敗'));
-                };
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
                 
-                // 添加時間戳避免快取問題
-                img.src = imageUrl + (imageUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
-            });
+                blob = await response.blob();
+                console.log('直接獲取成功');
+                
+            } catch (fetchError) {
+                console.log('直接獲取失敗，嘗試使用圖片元素獲取:', fetchError.message);
+                
+                // 如果直接獲取失敗，使用圖片元素獲取
+                blob = await new Promise((resolve, reject) => {
+                    const img = new Image();
+                    
+                    // 設置超時
+                    const timeout = setTimeout(() => {
+                        reject(new Error('圖片載入超時'));
+                    }, 15000); // 15秒超時
+                    
+                    img.onload = () => {
+                        clearTimeout(timeout);
+                        try {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = img.width;
+                            canvas.height = img.height;
+                            const ctx = canvas.getContext('2d');
+                            
+                            // 檢查圖片是否被污染（CORS 限制）
+                            ctx.drawImage(img, 0, 0);
+                            
+                            canvas.toBlob((result) => {
+                                if (result) {
+                                    console.log('使用 canvas 獲取成功');
+                                    resolve(result);
+                                } else {
+                                    reject(new Error('Canvas 轉換失敗'));
+                                }
+                            }, 'image/jpeg', 0.95);
+                            
+                        } catch (canvasError) {
+                            clearTimeout(timeout);
+                            reject(new Error('Canvas 處理失敗，可能是跨域限制: ' + canvasError.message));
+                        }
+                    };
+                    
+                    img.onerror = () => {
+                        clearTimeout(timeout);
+                        reject(new Error('圖片載入失敗，可能是網絡問題或 CORS 限制'));
+                    };
+                    
+                    // 嘗試不同的跨域設置
+                    img.crossOrigin = 'anonymous';
+                    
+                    // 添加時間戳避免快取問題
+                    const separator = imageUrl.includes('?') ? '&' : '?';
+                    img.src = imageUrl + separator + 't=' + Date.now();
+                });
+            }
         }
 
         if (!blob || blob.size === 0) {
@@ -1086,7 +1126,7 @@ function unhighlight(e) {
     document.getElementById('dropZone').classList.remove('dragover');
 }
 
-// 修改處理拖放的函數
+// 修改處理拖放的函數 - 增強 macOS 兼容性
 async function handleDrop(e) {
     const dt = e.dataTransfer;
     const items = dt.items;
@@ -1099,39 +1139,180 @@ async function handleDrop(e) {
             return;  // 如果用戶取消或未輸入，則退出
         }
 
+        console.log('開始處理拖放，項目數量:', items.length);
+        console.log('用戶代理:', navigator.userAgent);
+        
         // 處理拖放的項目
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
+            console.log(`項目 ${i}:`, { kind: item.kind, type: item.type });
             
-            // 如果是圖片URL（從其他網站拖放）
-            if (item.kind === 'string' && item.type.match('^text/plain')) {
-                item.getAsString(async (url) => {
-                    try {
-                        await saveImageToSupabase(url, word);
-                        showTemporaryMessage('圖片已成功添加！');
-                    } catch (error) {
-                        console.error('處理拖放的URL過程中發生錯誤：', error);
-                        showTemporaryMessage('添加失敗：' + error.message, 'error');
-                    }
-                });
-            }
-            // 如果是直接拖放的圖片文件
-            else if (item.kind === 'file' && item.type.match('^image/')) {
+            // 優先處理文件類型（更可靠）
+            if (item.kind === 'file' && item.type.match('^image/')) {
+                console.log('處理文件類型的圖片');
                 const file = item.getAsFile();
                 try {
-                    const imageUrl = URL.createObjectURL(file);
-                    await saveImageToSupabase(imageUrl, word);
-                    URL.revokeObjectURL(imageUrl);
+                    // 直接使用文件對象，不創建 URL
+                    await saveFileToSupabase(file, word);
                     showTemporaryMessage('圖片已成功添加！');
                 } catch (error) {
                     console.error('處理拖放的文件過程中發生錯誤：', error);
                     showTemporaryMessage('添加失敗：' + error.message, 'error');
                 }
             }
+            // 處理 URL 類型（備用方案）
+            else if (item.kind === 'string') {
+                console.log('處理字符串類型，type:', item.type);
+                
+                // 處理多種字符串類型
+                if (item.type.match('^text/plain') || item.type.match('^text/uri-list') || item.type.match('^text/html')) {
+                    item.getAsString(async (data) => {
+                        try {
+                            console.log('獲取到的字符串數據:', data);
+                            
+                            // 嘗試提取圖片 URL
+                            let imageUrl = extractImageUrl(data);
+                            if (imageUrl) {
+                                console.log('提取到圖片 URL:', imageUrl);
+                                await saveImageToSupabaseWithFallback(imageUrl, word);
+                                showTemporaryMessage('圖片已成功添加！');
+                            } else {
+                                console.log('無法提取有效的圖片 URL');
+                                showTemporaryMessage('無法識別圖片 URL', 'error');
+                            }
+                        } catch (error) {
+                            console.error('處理拖放的URL過程中發生錯誤：', error);
+                            showTemporaryMessage('添加失敗：' + error.message, 'error');
+                        }
+                    });
+                }
+            }
         }
+        
+        // 如果沒有找到任何可處理的項目
+        if (items.length === 0) {
+            console.log('沒有找到可處理的拖放項目');
+            showTemporaryMessage('沒有檢測到圖片數據', 'error');
+        }
+        
     } catch (error) {
         console.error('拖放處理失敗：', error);
         showTemporaryMessage('處理圖片失敗：' + error.message, 'error');
+    }
+}
+
+// 新增：直接處理文件對象的函數（避免 CORS 問題）
+async function saveFileToSupabase(file, searchTerm) {
+    try {
+        console.log('直接處理文件對象:', file.name, file.type, file.size);
+        
+        if (!supabaseClient) {
+            throw new Error('Supabase 客戶端未初始化');
+        }
+        
+        const timestamp = Date.now();
+        const fileName = `${searchTerm}_${timestamp}.jpg`;
+        
+        // 壓縮圖片
+        console.log('開始壓縮文件，原始大小:', file.size);
+        const compressedBlob = await compressImage(file);
+        console.log('壓縮完成，壓縮後大小:', compressedBlob.size);
+        
+        // 上传到 Supabase Storage
+        console.log('開始上傳到 Supabase Storage:', fileName);
+        
+        const { data, error } = await supabaseClient.storage
+            .from('images')
+            .upload(fileName, compressedBlob, {
+                contentType: 'image/jpeg',
+                upsert: true
+            });
+        
+        if (error) {
+            console.error('上傳失敗:', error);
+            throw error;
+        }
+        
+        console.log('上傳完成，獲取公開 URL...');
+        
+        // 獲取公開 URL
+        const { data: urlData } = supabaseClient.storage
+            .from('images')
+            .getPublicUrl(fileName);
+        
+        const downloadUrl = urlData.publicUrl;
+        console.log('公開 URL:', downloadUrl);
+        
+        // 创建单词卡
+        createFlashcard(downloadUrl, searchTerm, fileName, timestamp);
+        
+        console.log('文件儲存成功:', fileName);
+        
+    } catch (error) {
+        console.error('文件儲存過程中發生錯誤：', error);
+        throw error;
+    }
+}
+
+// 新增：提取圖片 URL 的函數
+function extractImageUrl(data) {
+    console.log('嘗試提取圖片 URL，數據類型:', typeof data);
+    console.log('數據內容:', data);
+    
+    // 如果直接是 URL
+    if (typeof data === 'string') {
+        // 檢查是否是圖片 URL
+        if (data.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?.*)?$/i)) {
+            return data;
+        }
+        
+        // 檢查是否是 data URL
+        if (data.startsWith('data:image/')) {
+            return data;
+        }
+        
+        // 嘗試從 HTML 中提取圖片 URL
+        const imgMatch = data.match(/<img[^>]+src="([^"]+)"/i);
+        if (imgMatch) {
+            return imgMatch[1];
+        }
+        
+        // 嘗試匹配 URL 格式
+        const urlMatch = data.match(/https?:\/\/[^\s<>"]+\.(jpg|jpeg|png|gif|webp|bmp)(\?[^\s<>"]*)?/i);
+        if (urlMatch) {
+            return urlMatch[0];
+        }
+        
+        // 如果看起來像 URL，就嘗試使用
+        if (data.startsWith('http://') || data.startsWith('https://')) {
+            return data;
+        }
+    }
+    
+    return null;
+}
+
+// 新增：帶有回退機制的圖片保存函數
+async function saveImageToSupabaseWithFallback(imageUrl, searchTerm) {
+    console.log('嘗試保存圖片，URL:', imageUrl);
+    
+    try {
+        // 首先嘗試原始的保存方法
+        await saveImageToSupabase(imageUrl, searchTerm);
+    } catch (error) {
+        console.log('原始方法失敗，嘗試備用方案:', error.message);
+        
+        try {
+            // 備用方案：使用代理或不同的獲取方式
+            const proxyUrl = `https://cors-anywhere.herokuapp.com/${imageUrl}`;
+            console.log('嘗試使用代理 URL:', proxyUrl);
+            await saveImageToSupabase(proxyUrl, searchTerm);
+        } catch (proxyError) {
+            console.log('代理方案也失敗:', proxyError.message);
+            
+            // 最後的備用方案：提示用戶手動保存
+            throw new Error('無法獲取圖片，可能是跨域限制。請嘗試右鍵保存圖片後直接拖放文件。');
+        }
     }
 }
 

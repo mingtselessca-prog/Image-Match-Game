@@ -1178,7 +1178,7 @@ async function handleDrop(e) {
                                 showTemporaryMessage('圖片已成功添加！');
                             } else {
                                 console.log('無法提取有效的圖片 URL');
-                                showTemporaryMessage('無法識別圖片 URL', 'error');
+                                showTemporaryMessage('無法識別圖片 URL。建議：右鍵保存圖片後拖放文件', 'error');
                             }
                         } catch (error) {
                             console.error('處理拖放的URL過程中發生錯誤：', error);
@@ -1302,17 +1302,38 @@ async function saveImageToSupabaseWithFallback(imageUrl, searchTerm) {
     } catch (error) {
         console.log('原始方法失敗，嘗試備用方案:', error.message);
         
-        try {
-            // 備用方案：使用代理或不同的獲取方式
-            const proxyUrl = `https://cors-anywhere.herokuapp.com/${imageUrl}`;
-            console.log('嘗試使用代理 URL:', proxyUrl);
-            await saveImageToSupabase(proxyUrl, searchTerm);
-        } catch (proxyError) {
-            console.log('代理方案也失敗:', proxyError.message);
+        // 嘗試多個代理服務
+        const proxyServices = [
+            `https://api.allorigins.win/raw?url=${encodeURIComponent(imageUrl)}`,
+            `https://cors-anywhere.herokuapp.com/${imageUrl}`,
+            `https://thingproxy.freeboard.io/fetch/${imageUrl}`,
+            // 如果圖片來源是常見網站，嘗試直接修改 URL
+            imageUrl.replace(/^https?:\/\//, 'https://images.weserv.nl/?url=')
+        ];
+        
+        let lastError;
+        for (let i = 0; i < proxyServices.length; i++) {
+            const proxyUrl = proxyServices[i];
+            console.log(`嘗試代理服務 ${i + 1}:`, proxyUrl);
             
-            // 最後的備用方案：提示用戶手動保存
-            throw new Error('無法獲取圖片，可能是跨域限制。請嘗試右鍵保存圖片後直接拖放文件。');
+            try {
+                await saveImageToSupabase(proxyUrl, searchTerm);
+                console.log('✅ 代理服務成功！');
+                return;
+            } catch (proxyError) {
+                console.log(`代理服務 ${i + 1} 失敗:`, proxyError.message);
+                lastError = proxyError;
+                
+                // 如果不是最後一個，繼續嘗試
+                if (i < proxyServices.length - 1) {
+                    continue;
+                }
+            }
         }
+        
+        // 所有代理都失敗了，顯示友好的錯誤信息
+        console.log('所有代理服務都失敗了');
+        throw new Error(`無法獲取圖片，這是跨域安全限制造成的。\n\n解決方案：\n1. 右鍵點擊圖片 → 另存新檔\n2. 將保存的圖片文件拖放到此處\n\n這樣就能成功添加圖片了！`);
     }
 }
 
@@ -1423,14 +1444,23 @@ function updateCardSize(size) {
 function showTemporaryMessage(message, type = 'success') {
     const messageDiv = document.createElement('div');
     messageDiv.className = `temporary-message ${type}`;
-    messageDiv.textContent = message;
+    
+    // 支持多行消息
+    if (message.includes('\n')) {
+        messageDiv.innerHTML = message.split('\n').map(line => `<div>${line}</div>`).join('');
+    } else {
+        messageDiv.textContent = message;
+    }
+    
     document.body.appendChild(messageDiv);
 
-    // 2秒後移除提示
+    // 根据消息类型调整显示时间
+    const displayTime = type === 'error' ? 4000 : 2000; // 错误消息显示更久
+    
     setTimeout(() => {
         messageDiv.classList.add('fade-out');
         setTimeout(() => messageDiv.remove(), 500);
-    }, 2000);
+    }, displayTime);
 }
 
 // 添加診斷函數

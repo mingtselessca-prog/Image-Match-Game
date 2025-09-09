@@ -154,7 +154,166 @@ body {
 .flashcard .word-div {
     margin-top: auto;
     padding: 10px;
-    font-size: max(calc(var(--card-size, 250px) * 0.08), 12px);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    color: #ffffff;
+    background-color: #1a1a1a;
+    border-radius: 4px;
+    margin: 5px 0;
+    border: 1px solid transparent;
+    transition: all 0.3s ease;
+    cursor: text;
+    line-height: 1.4;
+}
+
+.flashcard .word-div:hover {
+    border-color: #404040;
+    background-color: #2a2a2a;
+}
+
+/* 解释字段样式 */
+.flashcard .explanation-div {
+    padding: 8px 10px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    color: #a0aec0;
+    background-color: #1a1a1a;
+    border-radius: 4px;
+    margin: 5px 0;
+    min-height: 20px;
+    border: 1px solid transparent;
+    transition: all 0.3s ease;
+    cursor: text;
+    line-height: 1.4;
+}
+
+.flashcard .explanation-div:hover {
+    border-color: #404040;
+    background-color: #2a2a2a;
+}
+
+/* 中文名字段样式 */
+.flashcard .chinese-name-div {
+    padding: 6px 10px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 15px;
+    font-weight: 500;
+    color: #68d391;
+    background-color: #1a1a1a;
+    border-radius: 4px;
+    margin: 0;
+    min-height: 18px;
+    border: 1px solid transparent;
+    transition: all 0.3s ease;
+    cursor: text;
+    line-height: 1.3;
+    flex: 1;
+}
+
+/* 中文名容器 - 用于放置中文名和翻译按钮 */
+.flashcard .chinese-name-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 3px 0;
+}
+
+/* 翻译按钮样式 */
+.flashcard .translate-button {
+    width: 24px;
+    height: 24px;
+    background-color: #4a5568;
+    border: none;
+    border-radius: 4px;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.flashcard .translate-button:hover {
+    background-color: #68d391;
+    transform: scale(1.05);
+}
+
+.flashcard .translate-button:active {
+    transform: scale(0.95);
+}
+
+.flashcard .translate-button.loading {
+    background-color: #3182ce;
+    cursor: wait;
+}
+
+.flashcard .translate-button.loading::after {
+    content: '';
+    width: 12px;
+    height: 12px;
+    border: 2px solid #ffffff;
+    border-top: 2px solid transparent;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+/* 非编辑模式下隐藏翻译按钮 */
+body:not(.edit-mode) .flashcard .translate-button {
+    display: none !important;
+}
+
+/* 编辑模式下确保翻译按钮显示 */
+body.edit-mode .flashcard .translate-button {
+    display: flex;
+}
+
+.flashcard .chinese-name-div:hover {
+    border-color: #404040;
+    background-color: #2a2a2a;
+}
+
+.flashcard .chinese-name-div:empty::before {
+    content: "点击添加中文名...";
+    color: #666;
+    font-style: italic;
+}
+
+/* 单词字段编辑状态 */
+.flashcard .word-div.editing {
+    border: 1px solid #3182ce;
+    background-color: #2d2d2d;
+    outline: none;
+}
+
+.flashcard .word-div:empty::before {
+    content: "点击编辑单词...";
+    color: #666;
+    font-style: italic;
+}
+
+/* 中文名字段编辑状态 */
+.flashcard .chinese-name-div.editing {
+    border-color: #3182ce;
+    background-color: #2d2d2d;
+    outline: none;
+}
+
+/* 解释字段编辑状态 */
+.flashcard .explanation-div.editing {
+    border-color: #3182ce;
+    background-color: #2d2d2d;
+    outline: none;
+}
+
+.flashcard .explanation-div:empty::before {
+    content: "点击添加解释...";
+    color: #666;
+    font-style: italic;
 }
 
 .image-container {
@@ -343,14 +502,136 @@ body {
     opacity: 0.6;
 }
 
+/* 编辑模式控制区域样式 */
+.edit-mode-control {
+    margin: 10px 0;
+    padding: 5px;
+    border-top: 1px solid #404040;
+    border-bottom: 1px solid #404040;
+}
+
+.edit-mode-button {
+    width: 100%;
+    padding: 10px 12px;
+    background-color: #e67e22;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.edit-mode-button:hover {
+    background-color: #d35400;
+    transform: translateY(-1px);
+}
+
+.edit-mode-button.active {
+    background-color: #27ae60;
+    border: 2px solid #2ecc71;
+    box-shadow: 0 2px 8px rgba(46, 204, 113, 0.3);
+}
+
+.edit-mode-button.active:hover {
+    background-color: #219a52;
+}
+
 /* 單詞卡的新樣式 */
 .flashcard {
     cursor: pointer;
     user-select: none;
 }
 
+/* 非编辑模式下的样式 */
+body:not(.edit-mode) .flashcard .word-div,
+body:not(.edit-mode) .flashcard .chinese-name-div,
+body:not(.edit-mode) .flashcard .explanation-div {
+    background-color: transparent;
+    border: none;
+    cursor: default;
+    padding: 5px 0;
+}
+
+/* 非编辑模式下保持字体样式 */
+body:not(.edit-mode) .flashcard .word-div {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+body:not(.edit-mode) .flashcard .chinese-name-div {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 15px;
+    font-weight: 500;
+    color: #68d391;
+}
+
+body:not(.edit-mode) .flashcard .explanation-div {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    color: #a0aec0;
+}
+
+body:not(.edit-mode) .flashcard .word-div:hover,
+body:not(.edit-mode) .flashcard .chinese-name-div:hover,
+body:not(.edit-mode) .flashcard .explanation-div:hover {
+    background-color: transparent;
+    border: none;
+}
+
+/* 非编辑模式下隐藏空字段的占位符 */
+body:not(.edit-mode) .flashcard .word-div:empty::before,
+body:not(.edit-mode) .flashcard .chinese-name-div:empty::before,
+body:not(.edit-mode) .flashcard .explanation-div:empty::before {
+    display: none;
+}
+
+/* 编辑模式下的样式 */
+body.edit-mode .flashcard .word-div,
+body.edit-mode .flashcard .chinese-name-div,
+body.edit-mode .flashcard .explanation-div {
+    cursor: text;
+}
+
+/* 删除按钮的编辑模式控制 */
+/* 非编辑模式下隐藏删除按钮 */
+body:not(.edit-mode) .flashcard .delete-button {
+    display: none !important;
+}
+
+/* 编辑模式下确保删除按钮显示 */
+body.edit-mode .flashcard .delete-button {
+    display: block;
+}
+
+/* 编辑模式下显示占位符 */
+body.edit-mode .flashcard .word-div:empty::before {
+    content: "点击编辑单词...";
+    color: #666;
+    font-style: italic;
+}
+
+body.edit-mode .flashcard .chinese-name-div:empty::before {
+    content: "点击添加中文名...";
+    color: #666;
+    font-style: italic;
+}
+
+body.edit-mode .flashcard .explanation-div:empty::before {
+    content: "点击添加解释...";
+    color: #666;
+    font-style: italic;
+}
+
 /* 純圖片模式 */
-.images-only .flashcard .word-div {
+.images-only .flashcard .word-div,
+.images-only .flashcard .chinese-name-div,
+.images-only .flashcard .chinese-name-container,
+.images-only .flashcard .explanation-div {
     display: none;
 }
 
@@ -361,8 +642,15 @@ body {
 
 /* 當雙擊時顯示完整內容的樣式 */
 .flashcard.show-all img,
-.flashcard.show-all .word-div {
+.flashcard.show-all .word-div,
+.flashcard.show-all .chinese-name-div,
+.flashcard.show-all .chinese-name-container,
+.flashcard.show-all .explanation-div {
     display: block !important;
+}
+
+.flashcard.show-all .chinese-name-container {
+    display: flex !important;
 }
 
 /* 完整模式按鈕樣式 */
@@ -378,6 +666,30 @@ body {
 .complete-mode .flashcard img,
 .complete-mode .flashcard .word-div {
     display: block;
+}
+
+.complete-mode .flashcard .chinese-name-div,
+.complete-mode .flashcard .chinese-name-container {
+    display: block;
+}
+
+.complete-mode .flashcard .chinese-name-container {
+    display: flex;
+}
+
+.complete-mode .flashcard .explanation-div {
+    display: block;
+}
+
+/* 隐藏中文名功能 - 优先级最高 */
+.hide-chinese-name .flashcard .chinese-name-div,
+.hide-chinese-name .flashcard .chinese-name-container {
+    display: none !important;
+}
+
+/* 隐藏解释功能 - 优先级最高 */
+.hide-explanation .flashcard .explanation-div {
+    display: none !important;
 }
 
 /* 當前選中的模式按鈕樣式 */
@@ -572,6 +884,207 @@ body {
     border-radius: 4px;
     font-size: 14px;
     z-index: 10;
+}
+
+/* 解释输入弹窗样式 */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    z-index: 2000;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-overlay.show {
+    display: flex;
+}
+
+.modal-content {
+    background-color: #2d2d2d;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    animation: modalSlideIn 0.3s ease-out;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-50px) scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid #404040;
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: #e0e0e0;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: #a0aec0;
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.modal-close:hover {
+    background-color: #404040;
+    color: #e0e0e0;
+}
+
+.modal-body {
+    padding: 20px 24px;
+}
+
+.input-group {
+    margin-bottom: 16px;
+}
+
+.input-group label {
+    display: block;
+    color: #a0aec0;
+    font-weight: 500;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.input-group input[type="text"] {
+    width: 100%;
+    padding: 10px 12px;
+    background-color: #1a1a1a;
+    color: #e0e0e0;
+    border: 1px solid #404040;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 14px;
+    transition: border-color 0.2s ease;
+    box-sizing: border-box;
+}
+
+.input-group input[type="text"]:focus {
+    outline: none;
+    border-color: #3182ce;
+    box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1);
+}
+
+.input-group input[type="text"]::placeholder {
+    color: #666;
+}
+
+#explanationTextarea {
+    width: 100%;
+    height: 120px;
+    padding: 12px;
+    background-color: #1a1a1a;
+    color: #e0e0e0;
+    border: 1px solid #404040;
+    border-radius: 6px;
+    resize: vertical;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.5;
+    transition: border-color 0.2s ease;
+    box-sizing: border-box;
+}
+
+#explanationTextarea:focus {
+    outline: none;
+    border-color: #3182ce;
+    box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1);
+}
+
+#explanationTextarea::placeholder {
+    color: #666;
+}
+
+.modal-footer {
+    display: flex;
+    gap: 12px;
+    padding: 16px 24px 24px;
+    justify-content: flex-end;
+}
+
+.modal-btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 80px;
+}
+
+.cancel-btn {
+    background-color: #4a5568;
+    color: #e0e0e0;
+}
+
+.cancel-btn:hover {
+    background-color: #5a6578;
+}
+
+.confirm-btn {
+    background-color: #3182ce;
+    color: white;
+}
+
+.confirm-btn:hover {
+    background-color: #2c5aa0;
+}
+
+.confirm-btn:disabled {
+    background-color: #4a5568;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* 响应式设计 */
+@media (max-width: 600px) {
+    .modal-content {
+        width: 95%;
+        margin: 20px;
+    }
+    
+    .modal-header,
+    .modal-body,
+    .modal-footer {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+    
+    #explanationTextarea {
+        height: 100px;
+    }
 }
 
 

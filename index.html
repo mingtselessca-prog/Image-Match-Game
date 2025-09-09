@@ -19,6 +19,12 @@
                 <label>
                     <input type="checkbox" id="hideControls"> 僅顯示單詞卡
                 </label>
+                <label>
+                    <input type="checkbox" id="hideChineseName"> 隱藏中文名
+                </label>
+                <label>
+                    <input type="checkbox" id="hideExplanation"> 隱藏解釋
+                </label>
                 <div class="size-control">
                     <label for="cardSize">卡片大小：</label>
                     <input type="range" id="cardSize" min="100" max="300" value="250">
@@ -29,6 +35,9 @@
                     <button id="showWordsOnly">純單詞模式</button>
                     <button id="showComplete">完整模式</button>
                     <button id="shuffleCards">隨機排序</button>
+                </div>
+                <div class="edit-mode-control">
+                    <button id="toggleEditMode" class="edit-mode-button">✏️ 編輯模式</button>
                 </div>
                 <div class="sort-controls">
                     <small style="color: #a0aec0; margin-bottom: 5px; display: block;">時間排序:</small>
@@ -46,14 +55,7 @@
         </div>
         
         <div id="dropZone" class="drop-zone">
-            <div class="drop-instructions">
-                <h3>📁 添加圖片到單詞卡</h3>
-                <p><strong>推薦方式：</strong></p>
-                <p>1. 右鍵點擊圖片 → 另存新檔到桌面</p>
-                <p>2. 將保存的圖片文件拖放到這裡</p>
-                <hr style="margin: 10px 0; opacity: 0.3;">
-                <p><small>也可以嘗試直接從網頁拖放圖片<br>（可能因安全限制而失敗）</small></p>
-            </div>
+            <p>將圖片拖放到這裡</p>
         </div>
         
         <div id="searchResults" class="image-grid"></div>
@@ -61,6 +63,51 @@
         <div class="flashcards-section">
             <h2>單詞卡</h2>
             <div id="flashcards"></div>
+        </div>
+    </div>
+
+    <!-- 解释输入弹窗 -->
+    <div id="explanationModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">創建單詞卡</h3>
+                <button class="modal-close" id="modalCloseBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="input-group">
+                    <label for="wordInput">單詞：</label>
+                    <input type="text" id="wordInput" placeholder="請輸入單詞">
+                </div>
+                <div class="input-group">
+                    <label for="chineseNameInput">中文名：</label>
+                    <input type="text" id="chineseNameInput" placeholder="請輸入中文名稱">
+                </div>
+                <div class="input-group">
+                    <label for="explanationTextarea">解釋內容：</label>
+                    <textarea id="explanationTextarea" placeholder="請輸入對這個單詞的解釋..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="modalCancelBtn" class="modal-btn cancel-btn">取消</button>
+                <button id="modalConfirmBtn" class="modal-btn confirm-btn">確定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 删除确认弹窗 -->
+    <div id="deleteConfirmModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>確認刪除</h3>
+                <button class="modal-close" id="deleteModalCloseBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="deleteConfirmMessage">確定要刪除這張單詞卡嗎？此操作無法撤銷。</p>
+            </div>
+            <div class="modal-footer">
+                <button id="deleteCancelBtn" class="modal-btn cancel-btn">取消</button>
+                <button id="deleteConfirmBtn" class="modal-btn confirm-btn">確定刪除</button>
+            </div>
         </div>
     </div>
 

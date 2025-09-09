@@ -23,6 +23,9 @@ try {
         }
     });
     
+    // 初始化数据表
+    initializeDatabase();
+    
     // 在頁面載入完成後立即載入單詞卡
     window.addEventListener('load', () => {
         console.log('頁面載入完成，開始載入單詞卡...');
@@ -33,12 +36,171 @@ try {
     alert('請先設置 Supabase 配置！請在 main.js 中填入您的 SUPABASE_URL 和 SUPABASE_ANON_KEY');
 }
 
+// 初始化数据库表
+async function initializeDatabase() {
+    try {
+        // 检查表是否存在，如果不存在则创建
+        const { data, error } = await supabaseClient
+            .from('flashcard_explanations')
+            .select('*')
+            .limit(1);
+            
+        if (error && error.code === 'PGRST116') {
+            console.log('表不存在，需要手动创建 flashcard_explanations 表');
+            console.log('请在 Supabase 控制台的 SQL Editor 中运行以下 SQL:');
+            console.log(`
+CREATE TABLE flashcard_explanations (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    file_name TEXT NOT NULL UNIQUE,
+    word TEXT NOT NULL,
+    chinese_name TEXT DEFAULT '',
+    explanation TEXT DEFAULT '',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 创建索引以提高查询性能
+CREATE INDEX idx_flashcard_explanations_file_name ON flashcard_explanations(file_name);
+CREATE INDEX idx_flashcard_explanations_word ON flashcard_explanations(word);
+
+-- 启用行级安全 (RLS)
+ALTER TABLE flashcard_explanations ENABLE ROW LEVEL SECURITY;
+
+-- 创建允许所有操作的策略（对于简单应用）
+CREATE POLICY "Allow all operations" ON flashcard_explanations FOR ALL USING (true);
+            `);
+        } else if (error) {
+            console.error('检查数据表时发生错误:', error);
+        } else {
+            console.log('flashcard_explanations 表已存在');
+        }
+    } catch (error) {
+        console.error('初始化数据库时发生错误:', error);
+    }
+}
+
+// 保存或更新卡片数据到 Supabase
+async function saveCardDataToSupabase(fileName, word, chineseName = '', explanation = '') {
+    try {
+        const { data, error } = await supabaseClient
+            .from('flashcard_explanations')
+            .upsert({
+                file_name: fileName,
+                word: word,
+                chinese_name: chineseName,
+                explanation: explanation,
+                updated_at: new Date().toISOString()
+            }, {
+                onConflict: 'file_name'
+            });
+
+        if (error) {
+            throw error;
+        }
+        
+        console.log('卡片数据已保存到云端:', fileName, { word, chineseName, explanation });
+        return true;
+    } catch (error) {
+        console.error('保存卡片数据到云端失败:', error);
+        throw error;
+    }
+}
+
+// 保留旧函数以兼容性（仅更新解释）
+async function saveExplanationToSupabase(fileName, word, explanation) {
+    return await saveCardDataToSupabase(fileName, word, '', explanation);
+}
+
+// 从 Supabase 加载完整卡片数据
+async function loadCardDataFromSupabase(fileName) {
+    try {
+        const { data, error } = await supabaseClient
+            .from('flashcard_explanations')
+            .select('word, chinese_name, explanation')
+            .eq('file_name', fileName)
+            .single();
+
+        if (error) {
+            if (error.code === 'PGRST116') {
+                console.log('卡片数据不存在:', fileName);
+                return { word: '', chineseName: '', explanation: '' };
+            }
+            throw error;
+        }
+
+        return {
+            word: data?.word || '',
+            chineseName: data?.chinese_name || '',
+            explanation: data?.explanation || ''
+        };
+    } catch (error) {
+        console.error('从云端加载卡片数据失败:', error);
+        return { word: '', chineseName: '', explanation: '' };
+    }
+}
+
+// 保留旧函数以兼容性（仅加载解释）
+async function loadExplanationFromSupabase(fileName) {
+    try {
+        const { data, error } = await supabaseClient
+            .from('flashcard_explanations')
+            .select('explanation')
+            .eq('file_name', fileName)
+            .single();
+
+        if (error) {
+            if (error.code === 'PGRST116') {
+                console.log('解释数据不存在:', fileName);
+                return '';
+            }
+            throw error;
+        }
+
+        return data?.explanation || '';
+    } catch (error) {
+        console.error('从云端加载解释失败:', error);
+        return '';
+    }
+}
+
+// 批量加载所有解释
+async function loadAllExplanations() {
+    try {
+        const { data, error } = await supabaseClient
+            .from('flashcard_explanations')
+            .select('file_name, explanation');
+
+        if (error) {
+            console.error('批量加载解释失败:', error);
+            return {};
+        }
+
+        const explanations = {};
+        data?.forEach(item => {
+            explanations[item.file_name] = item.explanation;
+        });
+
+        return explanations;
+    } catch (error) {
+        console.error('批量加载解释失败:', error);
+        return {};
+    }
+}
+
 // Google Custom Search API 配置
 const GOOGLE_API_KEY = 'AIzaSyB37BqSqIS4hYARNgua_O20LWmRnyoYwNs';
 const SEARCH_ENGINE_ID = '675a319b3d04d4973';
 
 document.getElementById('searchButton').addEventListener('click', () => {
     searchImages(1); // 重置到第一頁
+});
+
+// 为搜索输入框添加 Enter 键功能
+document.getElementById('searchInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        searchImages(1); // 重置到第一頁
+    }
 });
 
 // 添加分頁相關變量
@@ -223,91 +385,51 @@ async function saveImageToSupabase(imageUrl, searchTerm) {
         const timestamp = Date.now();
         const fileName = `${searchTerm}_${timestamp}.jpg`;
         
-        // 获取图片数据 - 改進的獲取方式
+        // 获取图片数据
         let blob;
-        
-        // 檢查是否是 data URL（直接處理）
-        if (imageUrl.startsWith('data:image/')) {
-            console.log('處理 data URL');
-            const response = await fetch(imageUrl);
-            blob = await response.blob();
-        } 
-        // 檢查是否是 blob URL（直接處理）
-        else if (imageUrl.startsWith('blob:')) {
-            console.log('處理 blob URL');
-            const response = await fetch(imageUrl);
-            blob = await response.blob();
-        }
-        // 處理網絡圖片 URL
-        else {
-            try {
-                // 先嘗試直接獲取圖片（適用於允許跨域的圖片）
-                console.log('嘗試直接獲取網絡圖片');
-                const response = await fetch(imageUrl, {
-                    mode: 'cors',
-                    headers: {
-                        'Accept': 'image/*',
-                    }
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        try {
+            // 先嘗試直接獲取圖片
+            const response = await fetch(imageUrl, {
+                mode: 'cors',
+                headers: {
+                    'Access-Control-Allow-Origin': '*'
                 }
-                
-                blob = await response.blob();
-                console.log('直接獲取成功');
-                
-            } catch (fetchError) {
-                console.log('直接獲取失敗，嘗試使用圖片元素獲取:', fetchError.message);
-                
-                // 如果直接獲取失敗，使用圖片元素獲取
-                blob = await new Promise((resolve, reject) => {
-                    const img = new Image();
-                    
-                    // 設置超時
-                    const timeout = setTimeout(() => {
-                        reject(new Error('圖片載入超時'));
-                    }, 15000); // 15秒超時
-                    
-                    img.onload = () => {
-                        clearTimeout(timeout);
-                        try {
-                            const canvas = document.createElement('canvas');
-                            canvas.width = img.width;
-                            canvas.height = img.height;
-                            const ctx = canvas.getContext('2d');
-                            
-                            // 檢查圖片是否被污染（CORS 限制）
-                            ctx.drawImage(img, 0, 0);
-                            
-                            canvas.toBlob((result) => {
-                                if (result) {
-                                    console.log('使用 canvas 獲取成功');
-                                    resolve(result);
-                                } else {
-                                    reject(new Error('Canvas 轉換失敗'));
-                                }
-                            }, 'image/jpeg', 0.95);
-                            
-                        } catch (canvasError) {
-                            clearTimeout(timeout);
-                            reject(new Error('Canvas 處理失敗，可能是跨域限制: ' + canvasError.message));
-                        }
-                    };
-                    
-                    img.onerror = () => {
-                        clearTimeout(timeout);
-                        reject(new Error('圖片載入失敗，可能是網絡問題或 CORS 限制'));
-                    };
-                    
-                    // 嘗試不同的跨域設置
-                    img.crossOrigin = 'anonymous';
-                    
-                    // 添加時間戳避免快取問題
-                    const separator = imageUrl.includes('?') ? '&' : '?';
-                    img.src = imageUrl + separator + 't=' + Date.now();
-                });
+            });
+            
+            if (!response.ok) {
+                throw new Error('直接獲取圖片失敗');
             }
+            
+            blob = await response.blob();
+        } catch (error) {
+            console.log('直接獲取失敗，嘗試使用圖片元素獲取:', error);
+            
+            // 如果直接獲取失敗，使用圖片元素獲取
+            blob = await new Promise((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    
+                    try {
+                        ctx.drawImage(img, 0, 0);
+                        canvas.toBlob(resolve, 'image/jpeg', 0.95);
+                    } catch (e) {
+                        reject(new Error('圖片處理失敗: ' + e.message));
+                    }
+                };
+                
+                img.onerror = () => {
+                    reject(new Error('圖片載入失敗'));
+                };
+                
+                // 添加時間戳避免快取問題
+                img.src = imageUrl + (imageUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
+            });
         }
 
         if (!blob || blob.size === 0) {
@@ -347,8 +469,55 @@ async function saveImageToSupabase(imageUrl, searchTerm) {
         const downloadUrl = urlData.publicUrl;
         console.log('公開 URL:', downloadUrl);
         
-        // 创建单词卡
-        createFlashcard(downloadUrl, searchTerm, fileName, timestamp);
+        // 验证图片是否可以访问
+        console.log('开始验证图片可访问性:', fileName, downloadUrl);
+        await verifyImageAccessible(downloadUrl);
+        console.log('图片验证完成，准备显示弹窗');
+        
+        // 显示卡片编辑弹窗，在用户确认后再创建卡片
+        explanationModal.show(searchTerm, fileName, '', '', async (word, chineseName, explanation) => {
+            try {
+                // 保存卡片数据到数据库
+                await saveCardDataToSupabase(fileName, word, chineseName, explanation);
+                
+                // 创建卡片并立即显示，避免被懒加载系统影响
+                console.log('开始创建卡片:', fileName, word);
+                createFlashcard(downloadUrl, word, fileName, timestamp);
+                
+                // 立即更新新创建卡片的显示并检查图片状态
+                setTimeout(() => {
+                    const card = document.querySelector(`[data-file-name="${fileName}"]`);
+                    if (card) {
+                        const wordDiv = card.querySelector('.word-div');
+                        const chineseNameDiv = card.querySelector('.chinese-name-div');
+                        const explanationDiv = card.querySelector('.explanation-div');
+                        const imgElement = card.querySelector('img');
+                        
+                        if (wordDiv) wordDiv.textContent = word;
+                        if (chineseNameDiv) chineseNameDiv.textContent = chineseName;
+                        if (explanationDiv) explanationDiv.textContent = explanation;
+                        
+                        // 检查图片元素状态
+                        console.log('卡片创建后检查:', {
+                            fileName: fileName,
+                            cardFound: !!card,
+                            imgFound: !!imgElement,
+                            imgSrc: imgElement ? imgElement.src : 'N/A',
+                            imgComplete: imgElement ? imgElement.complete : 'N/A',
+                            imgNaturalWidth: imgElement ? imgElement.naturalWidth : 'N/A'
+                        });
+                    } else {
+                        console.error('创建卡片后未找到卡片元素:', fileName);
+                    }
+                }, 100);
+                
+                showTemporaryMessage('單詞卡創建成功！', 'success');
+                
+            } catch (error) {
+                console.error('創建單詞卡失敗:', error);
+                showTemporaryMessage('創建失敗: ' + error.message, 'error');
+            }
+        });
         
         console.log('圖片儲存成功:', fileName);
         
@@ -699,6 +868,7 @@ async function loadImageForCard(card) {
         img.style.width = '100%';
         img.style.height = 'auto';
         img.style.display = 'block';
+        img.style.opacity = '0.5'; // 初始半透明
         
         // 設置載入超時（10秒）
         const loadPromise = new Promise((resolve, reject) => {
@@ -709,17 +879,22 @@ async function loadImageForCard(card) {
             img.onload = () => {
                 clearTimeout(timeout);
                 console.log('圖片載入成功:', word);
+                img.style.opacity = '1'; // 加载成功后变为不透明
                 resolve();
             };
             
             img.onerror = (e) => {
                 clearTimeout(timeout);
                 console.error('圖片載入錯誤:', word, e);
+                // 重试加载
+                setTimeout(() => {
+                    img.src = imageUrl + '?retry=' + Date.now();
+                }, 1000);
                 reject(new Error('圖片載入失敗'));
             };
             
-            // 開始載入圖片
-            img.src = imageUrl;
+            // 開始載入圖片，添加时间戳避免缓存问题
+            img.src = imageUrl + (imageUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
         });
         
         // 等待圖片載入完成
@@ -845,29 +1020,91 @@ function createLazyFlashcard(imageUrl, word, fileName, timestamp = Date.now()) {
     wordDiv.className = 'word-div';
     wordDiv.textContent = word;
     
+    // 创建中文名容器
+    const chineseNameContainer = document.createElement('div');
+    chineseNameContainer.className = 'chinese-name-container';
+    
+    // 创建中文名字段
+    const chineseNameDiv = document.createElement('div');
+    chineseNameDiv.className = 'chinese-name-div';
+    chineseNameDiv.contentEditable = false;
+    chineseNameDiv.dataset.fileName = fileName;
+    
+    // 创建翻译按钮
+    const translateButton = document.createElement('button');
+    translateButton.className = 'translate-button';
+    translateButton.textContent = '译';
+    translateButton.title = '翻译单词到中文';
+    
+    // 翻译按钮点击事件
+    translateButton.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await translateWordToChinese(wordDiv, chineseNameDiv, translateButton, fileName);
+    });
+    
+    // 将中文名字段和翻译按钮添加到容器
+    chineseNameContainer.appendChild(chineseNameDiv);
+    chineseNameContainer.appendChild(translateButton);
+    
+    // 创建解释字段
+    const explanationDiv = document.createElement('div');
+    explanationDiv.className = 'explanation-div';
+    explanationDiv.contentEditable = false;
+    explanationDiv.dataset.fileName = fileName;
+    
+    // 异步加载卡片数据
+    loadCardDataForCard(wordDiv, chineseNameDiv, explanationDiv, fileName);
+    
+    // 添加字段的编辑功能
+    setupCardEditing(wordDiv, chineseNameDiv, explanationDiv, fileName, word);
+    
     const deleteButton = document.createElement('button');
     deleteButton.textContent = '×';
     deleteButton.className = 'delete-button';
     deleteButton.onclick = async (e) => {
         e.stopPropagation();
-        try {
-            const { error } = await supabaseClient.storage
-                .from('images')
-                .remove([fileName]);
-            
-            if (error) {
-                throw error;
+        
+        const word = card.querySelector('.word-div').textContent || '此單詞卡';
+        const confirmMessage = `確定要刪除「${word}」這張單詞卡嗎？此操作無法撤銷。`;
+        
+        deleteConfirmModal.show(confirmMessage, async () => {
+            try {
+                // 删除图片文件
+                const { error: storageError } = await supabaseClient.storage
+                    .from('images')
+                    .remove([fileName]);
+                
+                if (storageError) {
+                    throw storageError;
+                }
+                
+                // 删除解释数据
+                const { error: dbError } = await supabaseClient
+                    .from('flashcard_explanations')
+                    .delete()
+                    .eq('file_name', fileName);
+                
+                if (dbError && dbError.code !== 'PGRST116') {
+                    console.warn('删除解释数据时出现警告:', dbError);
+                }
+                
+                card.remove();
+                showTemporaryMessage('卡片已刪除！');
+            } catch (error) {
+                console.error('刪除失敗：', error);
+                showTemporaryMessage('刪除失敗：' + error.message, 'error');
             }
-            
-            card.remove();
-            showTemporaryMessage('卡片已刪除！');
-        } catch (error) {
-            console.error('刪除失敗：', error);
-            showTemporaryMessage('刪除失敗：' + error.message, 'error');
-        }
+        });
     };
     
-    card.addEventListener('dblclick', () => {
+    card.addEventListener('dblclick', (e) => {
+        // 如果点击的是可编辑字段，不触发双击事件
+        if (e.target.classList.contains('word-div') || 
+            e.target.classList.contains('chinese-name-div') || 
+            e.target.classList.contains('explanation-div')) {
+            return;
+        }
+        
         card.classList.toggle('show-all');
         speakWord(word);
         setTimeout(() => {
@@ -877,9 +1114,16 @@ function createLazyFlashcard(imageUrl, word, fileName, timestamp = Date.now()) {
     
     card.appendChild(placeholder);
     card.appendChild(wordDiv);
+    card.appendChild(chineseNameContainer);
+    card.appendChild(explanationDiv);
     card.appendChild(deleteButton);
     
-    flashcardsDiv.appendChild(card);
+    // 將新卡片插入到最上方（與createFlashcard保持一致）
+    if (flashcardsDiv.firstChild) {
+        flashcardsDiv.insertBefore(card, flashcardsDiv.firstChild);
+    } else {
+        flashcardsDiv.appendChild(card);
+    }
 }
 
 // 修改 createFlashcard 函數，添加漸進式載入效果（用於直接載入的圖片）
@@ -890,39 +1134,132 @@ function createFlashcard(imageUrl, word, fileName, timestamp = Date.now()) {
     card.className = 'flashcard';
     card.dataset.timestamp = timestamp;
     card.dataset.fileName = fileName;
+    card.dataset.imageUrl = imageUrl; // 储存图片URL，用于调试和后续使用
     
     const img = document.createElement('img');
-    img.src = imageUrl;
     img.alt = word;
-    img.loading = 'lazy';
+    img.loading = 'eager'; // 改为立即加载
+    img.style.width = '100%';
+    img.style.display = 'block';
+    img.style.opacity = '0.5'; // 初始半透明，加载完成后变为不透明
+    
+    // 添加加载状态处理
+    img.addEventListener('load', () => {
+        console.log('图片加载成功:', fileName);
+        img.style.opacity = '1';
+    });
+    
+    let retryCount = 0;
+    img.addEventListener('error', () => {
+        console.error('图片加载失败:', fileName, imageUrl, '重试次数:', retryCount);
+        if (retryCount < 3) {
+            retryCount++;
+            // 重试加载，使用递增的延迟
+            setTimeout(() => {
+                const retryUrl = imageUrl + (imageUrl.includes('?') ? '&' : '?') + 'retry=' + Date.now();
+                console.log('重试加载图片:', fileName, '次数:', retryCount, 'URL:', retryUrl);
+                img.src = retryUrl;
+            }, 1000 * retryCount);
+        } else {
+            console.error('图片加载失败，已达到最大重试次数:', fileName);
+            // 可以在这里设置一个默认图片或错误提示
+        }
+    });
+    
+    // 设置图片源，添加时间戳避免缓存问题
+    const finalImageUrl = imageUrl + (imageUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
+    console.log('createFlashcard 设置图片源:', fileName, 'URL:', finalImageUrl);
+    img.src = finalImageUrl;
     
     const wordDiv = document.createElement('div');
     wordDiv.className = 'word-div';
     wordDiv.textContent = word;
+    
+    // 创建中文名容器
+    const chineseNameContainer = document.createElement('div');
+    chineseNameContainer.className = 'chinese-name-container';
+    
+    // 创建中文名字段
+    const chineseNameDiv = document.createElement('div');
+    chineseNameDiv.className = 'chinese-name-div';
+    chineseNameDiv.contentEditable = false;
+    chineseNameDiv.dataset.fileName = fileName;
+    
+    // 创建翻译按钮
+    const translateButton = document.createElement('button');
+    translateButton.className = 'translate-button';
+    translateButton.textContent = '译';
+    translateButton.title = '翻译单词到中文';
+    
+    // 翻译按钮点击事件
+    translateButton.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await translateWordToChinese(wordDiv, chineseNameDiv, translateButton, fileName);
+    });
+    
+    // 将中文名字段和翻译按钮添加到容器
+    chineseNameContainer.appendChild(chineseNameDiv);
+    chineseNameContainer.appendChild(translateButton);
+    
+    // 创建解释字段
+    const explanationDiv = document.createElement('div');
+    explanationDiv.className = 'explanation-div';
+    explanationDiv.contentEditable = false;
+    explanationDiv.dataset.fileName = fileName;
+    
+    // 异步加载卡片数据
+    loadCardDataForCard(wordDiv, chineseNameDiv, explanationDiv, fileName);
+    
+    // 添加字段的编辑功能
+    setupCardEditing(wordDiv, chineseNameDiv, explanationDiv, fileName, word);
     
     const deleteButton = document.createElement('button');
     deleteButton.textContent = '×';
     deleteButton.className = 'delete-button';
     deleteButton.onclick = async (e) => {
         e.stopPropagation();
-        try {
-            const { error } = await supabaseClient.storage
-                .from('images')
-                .remove([fileName]);
-            
-            if (error) {
-                throw error;
+        
+        const word = card.querySelector('.word-div').textContent || '此單詞卡';
+        const confirmMessage = `確定要刪除「${word}」這張單詞卡嗎？此操作無法撤銷。`;
+        
+        deleteConfirmModal.show(confirmMessage, async () => {
+            try {
+                // 删除图片文件
+                const { error: storageError } = await supabaseClient.storage
+                    .from('images')
+                    .remove([fileName]);
+                
+                if (storageError) {
+                    throw storageError;
+                }
+                
+                // 删除解释数据
+                const { error: dbError } = await supabaseClient
+                    .from('flashcard_explanations')
+                    .delete()
+                    .eq('file_name', fileName);
+                
+                if (dbError && dbError.code !== 'PGRST116') {
+                    console.warn('删除解释数据时出现警告:', dbError);
+                }
+                
+                card.remove();
+                showTemporaryMessage('卡片已刪除！');
+            } catch (error) {
+                console.error('刪除失敗：', error);
+                showTemporaryMessage('刪除失敗：' + error.message, 'error');
             }
-            
-            card.remove();
-            showTemporaryMessage('卡片已刪除！');
-        } catch (error) {
-            console.error('刪除失敗：', error);
-            showTemporaryMessage('刪除失敗：' + error.message, 'error');
-        }
+        });
     };
     
-    card.addEventListener('dblclick', () => {
+    card.addEventListener('dblclick', (e) => {
+        // 如果点击的是可编辑字段，不触发双击事件
+        if (e.target.classList.contains('word-div') || 
+            e.target.classList.contains('chinese-name-div') || 
+            e.target.classList.contains('explanation-div')) {
+            return;
+        }
+        
         card.classList.toggle('show-all');
         speakWord(word);
         setTimeout(() => {
@@ -932,6 +1269,8 @@ function createFlashcard(imageUrl, word, fileName, timestamp = Date.now()) {
     
     card.appendChild(img);
     card.appendChild(wordDiv);
+    card.appendChild(chineseNameContainer);
+    card.appendChild(explanationDiv);
     card.appendChild(deleteButton);
     
     // 將新卡片插入到最上方
@@ -978,6 +1317,52 @@ document.addEventListener('DOMContentLoaded', () => {
     if (savedHideControls === 'true') {
         hideControlsCheckbox.checked = true;
         document.body.classList.add('hide-controls');
+    }
+
+    // 添加隐藏中文名控制
+    const hideChineseNameCheckbox = document.getElementById('hideChineseName');
+    hideChineseNameCheckbox.addEventListener('change', function() {
+        document.body.classList.toggle('hide-chinese-name', this.checked);
+        
+        // 保存设置到 localStorage
+        localStorage.setItem('hideChineseName', this.checked);
+        
+        // 显示提示消息
+        if (this.checked) {
+            showTemporaryMessage('已隱藏中文名', 'success');
+        } else {
+            showTemporaryMessage('已顯示中文名', 'success');
+        }
+    });
+
+    // 载入保存的隐藏中文名设置
+    const savedHideChineseName = localStorage.getItem('hideChineseName');
+    if (savedHideChineseName === 'true') {
+        hideChineseNameCheckbox.checked = true;
+        document.body.classList.add('hide-chinese-name');
+    }
+
+    // 添加隐藏解释控制
+    const hideExplanationCheckbox = document.getElementById('hideExplanation');
+    hideExplanationCheckbox.addEventListener('change', function() {
+        document.body.classList.toggle('hide-explanation', this.checked);
+        
+        // 保存设置到 localStorage
+        localStorage.setItem('hideExplanation', this.checked);
+        
+        // 显示提示消息
+        if (this.checked) {
+            showTemporaryMessage('已隱藏解釋', 'success');
+        } else {
+            showTemporaryMessage('已顯示解釋', 'success');
+        }
+    });
+
+    // 载入保存的隐藏解释设置
+    const savedHideExplanation = localStorage.getItem('hideExplanation');
+    if (savedHideExplanation === 'true') {
+        hideExplanationCheckbox.checked = true;
+        document.body.classList.add('hide-explanation');
     }
 
     // 添加視圖控制
@@ -1111,6 +1496,39 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem('cardSize', e.target.value);
         });
     }
+
+    // 添加编辑模式切换功能
+    const toggleEditModeBtn = document.getElementById('toggleEditMode');
+    
+    if (toggleEditModeBtn) {
+        // 载入保存的编辑模式状态
+        const savedEditMode = localStorage.getItem('editMode');
+        if (savedEditMode === 'true') {
+            document.body.classList.add('edit-mode');
+            toggleEditModeBtn.classList.add('active');
+            toggleEditModeBtn.textContent = '🔒 鎖定模式';
+        }
+
+        toggleEditModeBtn.addEventListener('click', () => {
+            const isEditMode = document.body.classList.contains('edit-mode');
+            
+            if (isEditMode) {
+                // 切换到锁定模式
+                document.body.classList.remove('edit-mode');
+                toggleEditModeBtn.classList.remove('active');
+                toggleEditModeBtn.textContent = '✏️ 編輯模式';
+                localStorage.setItem('editMode', 'false');
+                showTemporaryMessage('已切換到鎖定模式', 'success');
+            } else {
+                // 切换到编辑模式
+                document.body.classList.add('edit-mode');
+                toggleEditModeBtn.classList.add('active');
+                toggleEditModeBtn.textContent = '🔒 鎖定模式';
+                localStorage.setItem('editMode', 'true');
+                showTemporaryMessage('已切換到編輯模式', 'success');
+            }
+        });
+    }
 });
 
 function preventDefaults (e) {
@@ -1126,7 +1544,7 @@ function unhighlight(e) {
     document.getElementById('dropZone').classList.remove('dragover');
 }
 
-// 修改處理拖放的函數 - 增強 macOS 兼容性
+// 修改處理拖放的函數
 async function handleDrop(e) {
     const dt = e.dataTransfer;
     const items = dt.items;
@@ -1139,201 +1557,39 @@ async function handleDrop(e) {
             return;  // 如果用戶取消或未輸入，則退出
         }
 
-        console.log('開始處理拖放，項目數量:', items.length);
-        console.log('用戶代理:', navigator.userAgent);
-        
         // 處理拖放的項目
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
-            console.log(`項目 ${i}:`, { kind: item.kind, type: item.type });
             
-            // 優先處理文件類型（更可靠）
-            if (item.kind === 'file' && item.type.match('^image/')) {
-                console.log('處理文件類型的圖片');
+            // 如果是圖片URL（從其他網站拖放）
+            if (item.kind === 'string' && item.type.match('^text/plain')) {
+                item.getAsString(async (url) => {
+                    try {
+                        await saveImageToSupabase(url, word);
+                        showTemporaryMessage('圖片已成功添加！');
+                    } catch (error) {
+                        console.error('處理拖放的URL過程中發生錯誤：', error);
+                        showTemporaryMessage('添加失敗：' + error.message, 'error');
+                    }
+                });
+            }
+            // 如果是直接拖放的圖片文件
+            else if (item.kind === 'file' && item.type.match('^image/')) {
                 const file = item.getAsFile();
                 try {
-                    // 直接使用文件對象，不創建 URL
-                    await saveFileToSupabase(file, word);
+                    const imageUrl = URL.createObjectURL(file);
+                    await saveImageToSupabase(imageUrl, word);
+                    URL.revokeObjectURL(imageUrl);
                     showTemporaryMessage('圖片已成功添加！');
                 } catch (error) {
                     console.error('處理拖放的文件過程中發生錯誤：', error);
                     showTemporaryMessage('添加失敗：' + error.message, 'error');
                 }
             }
-            // 處理 URL 類型（備用方案）
-            else if (item.kind === 'string') {
-                console.log('處理字符串類型，type:', item.type);
-                
-                // 處理多種字符串類型
-                if (item.type.match('^text/plain') || item.type.match('^text/uri-list') || item.type.match('^text/html')) {
-                    item.getAsString(async (data) => {
-                        try {
-                            console.log('獲取到的字符串數據:', data);
-                            
-                            // 嘗試提取圖片 URL
-                            let imageUrl = extractImageUrl(data);
-                            if (imageUrl) {
-                                console.log('提取到圖片 URL:', imageUrl);
-                                await saveImageToSupabaseWithFallback(imageUrl, word);
-                                showTemporaryMessage('圖片已成功添加！');
-                            } else {
-                                console.log('無法提取有效的圖片 URL');
-                                showTemporaryMessage('無法識別圖片 URL。建議：右鍵保存圖片後拖放文件', 'error');
-                            }
-                        } catch (error) {
-                            console.error('處理拖放的URL過程中發生錯誤：', error);
-                            showTemporaryMessage('添加失敗：' + error.message, 'error');
-                        }
-                    });
-                }
-            }
         }
-        
-        // 如果沒有找到任何可處理的項目
-        if (items.length === 0) {
-            console.log('沒有找到可處理的拖放項目');
-            showTemporaryMessage('沒有檢測到圖片數據', 'error');
-        }
-        
     } catch (error) {
         console.error('拖放處理失敗：', error);
         showTemporaryMessage('處理圖片失敗：' + error.message, 'error');
-    }
-}
-
-// 新增：直接處理文件對象的函數（避免 CORS 問題）
-async function saveFileToSupabase(file, searchTerm) {
-    try {
-        console.log('直接處理文件對象:', file.name, file.type, file.size);
-        
-        if (!supabaseClient) {
-            throw new Error('Supabase 客戶端未初始化');
-        }
-        
-        const timestamp = Date.now();
-        const fileName = `${searchTerm}_${timestamp}.jpg`;
-        
-        // 壓縮圖片
-        console.log('開始壓縮文件，原始大小:', file.size);
-        const compressedBlob = await compressImage(file);
-        console.log('壓縮完成，壓縮後大小:', compressedBlob.size);
-        
-        // 上传到 Supabase Storage
-        console.log('開始上傳到 Supabase Storage:', fileName);
-        
-        const { data, error } = await supabaseClient.storage
-            .from('images')
-            .upload(fileName, compressedBlob, {
-                contentType: 'image/jpeg',
-                upsert: true
-            });
-        
-        if (error) {
-            console.error('上傳失敗:', error);
-            throw error;
-        }
-        
-        console.log('上傳完成，獲取公開 URL...');
-        
-        // 獲取公開 URL
-        const { data: urlData } = supabaseClient.storage
-            .from('images')
-            .getPublicUrl(fileName);
-        
-        const downloadUrl = urlData.publicUrl;
-        console.log('公開 URL:', downloadUrl);
-        
-        // 创建单词卡
-        createFlashcard(downloadUrl, searchTerm, fileName, timestamp);
-        
-        console.log('文件儲存成功:', fileName);
-        
-    } catch (error) {
-        console.error('文件儲存過程中發生錯誤：', error);
-        throw error;
-    }
-}
-
-// 新增：提取圖片 URL 的函數
-function extractImageUrl(data) {
-    console.log('嘗試提取圖片 URL，數據類型:', typeof data);
-    console.log('數據內容:', data);
-    
-    // 如果直接是 URL
-    if (typeof data === 'string') {
-        // 檢查是否是圖片 URL
-        if (data.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?.*)?$/i)) {
-            return data;
-        }
-        
-        // 檢查是否是 data URL
-        if (data.startsWith('data:image/')) {
-            return data;
-        }
-        
-        // 嘗試從 HTML 中提取圖片 URL
-        const imgMatch = data.match(/<img[^>]+src="([^"]+)"/i);
-        if (imgMatch) {
-            return imgMatch[1];
-        }
-        
-        // 嘗試匹配 URL 格式
-        const urlMatch = data.match(/https?:\/\/[^\s<>"]+\.(jpg|jpeg|png|gif|webp|bmp)(\?[^\s<>"]*)?/i);
-        if (urlMatch) {
-            return urlMatch[0];
-        }
-        
-        // 如果看起來像 URL，就嘗試使用
-        if (data.startsWith('http://') || data.startsWith('https://')) {
-            return data;
-        }
-    }
-    
-    return null;
-}
-
-// 新增：帶有回退機制的圖片保存函數
-async function saveImageToSupabaseWithFallback(imageUrl, searchTerm) {
-    console.log('嘗試保存圖片，URL:', imageUrl);
-    
-    try {
-        // 首先嘗試原始的保存方法
-        await saveImageToSupabase(imageUrl, searchTerm);
-    } catch (error) {
-        console.log('原始方法失敗，嘗試備用方案:', error.message);
-        
-        // 嘗試多個代理服務
-        const proxyServices = [
-            `https://api.allorigins.win/raw?url=${encodeURIComponent(imageUrl)}`,
-            `https://cors-anywhere.herokuapp.com/${imageUrl}`,
-            `https://thingproxy.freeboard.io/fetch/${imageUrl}`,
-            // 如果圖片來源是常見網站，嘗試直接修改 URL
-            imageUrl.replace(/^https?:\/\//, 'https://images.weserv.nl/?url=')
-        ];
-        
-        let lastError;
-        for (let i = 0; i < proxyServices.length; i++) {
-            const proxyUrl = proxyServices[i];
-            console.log(`嘗試代理服務 ${i + 1}:`, proxyUrl);
-            
-            try {
-                await saveImageToSupabase(proxyUrl, searchTerm);
-                console.log('✅ 代理服務成功！');
-                return;
-            } catch (proxyError) {
-                console.log(`代理服務 ${i + 1} 失敗:`, proxyError.message);
-                lastError = proxyError;
-                
-                // 如果不是最後一個，繼續嘗試
-                if (i < proxyServices.length - 1) {
-                    continue;
-                }
-            }
-        }
-        
-        // 所有代理都失敗了，顯示友好的錯誤信息
-        console.log('所有代理服務都失敗了');
-        throw new Error(`無法獲取圖片，這是跨域安全限制造成的。\n\n解決方案：\n1. 右鍵點擊圖片 → 另存新檔\n2. 將保存的圖片文件拖放到此處\n\n這樣就能成功添加圖片了！`);
     }
 }
 
@@ -1444,23 +1700,14 @@ function updateCardSize(size) {
 function showTemporaryMessage(message, type = 'success') {
     const messageDiv = document.createElement('div');
     messageDiv.className = `temporary-message ${type}`;
-    
-    // 支持多行消息
-    if (message.includes('\n')) {
-        messageDiv.innerHTML = message.split('\n').map(line => `<div>${line}</div>`).join('');
-    } else {
-        messageDiv.textContent = message;
-    }
-    
+    messageDiv.textContent = message;
     document.body.appendChild(messageDiv);
 
-    // 根据消息类型调整显示时间
-    const displayTime = type === 'error' ? 4000 : 2000; // 错误消息显示更久
-    
+    // 2秒後移除提示
     setTimeout(() => {
         messageDiv.classList.add('fade-out');
         setTimeout(() => messageDiv.remove(), 500);
-    }, displayTime);
+    }, 2000);
 }
 
 // 添加診斷函數
@@ -1542,3 +1789,482 @@ document.addEventListener('keydown', (e) => {
         window.fixSortingIssues();
     }
 });
+
+// 为卡片加载完整数据
+async function loadCardDataForCard(wordDiv, chineseNameDiv, explanationDiv, fileName) {
+    try {
+        const cardData = await loadCardDataFromSupabase(fileName);
+        
+        // 如果云端有数据，更新显示的单词
+        if (cardData.word) {
+            wordDiv.textContent = cardData.word;
+        }
+        
+        chineseNameDiv.textContent = cardData.chineseName;
+        explanationDiv.textContent = cardData.explanation;
+        
+        console.log('已加载卡片数据:', fileName, cardData);
+    } catch (error) {
+        console.error('加载卡片数据失败:', fileName, error);
+        chineseNameDiv.textContent = '';
+        explanationDiv.textContent = '';
+    }
+}
+
+// 为解释字段加载内容（保留旧函数以兼容性）
+async function loadExplanationForCard(explanationDiv, fileName) {
+    try {
+        const explanation = await loadExplanationFromSupabase(fileName);
+        explanationDiv.textContent = explanation;
+        console.log('已加载解释:', fileName, explanation);
+    } catch (error) {
+        console.error('加载解释失败:', fileName, error);
+        explanationDiv.textContent = '';
+    }
+}
+
+// 设置卡片字段的编辑功能（直接编辑模式）
+function setupCardEditing(wordDiv, chineseNameDiv, explanationDiv, fileName, initialWord) {
+    // 设置单词字段的直接编辑
+    setupInlineEditing(wordDiv, fileName, 'word', async (newValue) => {
+        const cardData = await loadCardDataFromSupabase(fileName);
+        await saveCardDataToSupabase(fileName, newValue, cardData.chineseName, cardData.explanation);
+    });
+    
+    // 设置中文名字段的直接编辑
+    setupInlineEditing(chineseNameDiv, fileName, 'chineseName', async (newValue) => {
+        const cardData = await loadCardDataFromSupabase(fileName);
+        await saveCardDataToSupabase(fileName, cardData.word, newValue, cardData.explanation);
+    });
+    
+    // 设置解释字段的直接编辑
+    setupInlineEditing(explanationDiv, fileName, 'explanation', async (newValue) => {
+        const cardData = await loadCardDataFromSupabase(fileName);
+        await saveCardDataToSupabase(fileName, cardData.word, cardData.chineseName, newValue);
+    });
+}
+
+// 设置解释字段的编辑功能（保留旧函数以兼容性）
+function setupExplanationEditing(explanationDiv, fileName, word) {
+    // 点击显示弹窗编辑
+    explanationDiv.addEventListener('click', (e) => {
+        e.stopPropagation();
+        
+        const currentExplanation = explanationDiv.textContent === '点击添加解释...' ? '' : explanationDiv.textContent;
+        
+        explanationModal.show(word, fileName, '', currentExplanation, async (newWord, newChineseName, newExplanation) => {
+            await saveCardDataToSupabase(fileName, newWord, newChineseName, newExplanation);
+            explanationDiv.textContent = newExplanation;
+            showTemporaryMessage('解释已更新', 'success');
+        }, false);
+    });
+}
+
+// 解释输入弹窗管理
+class ExplanationModal {
+    constructor() {
+        this.modal = document.getElementById('explanationModal');
+        this.modalTitle = document.getElementById('modalTitle');
+        this.wordInput = document.getElementById('wordInput');
+        this.chineseNameInput = document.getElementById('chineseNameInput');
+        this.textarea = document.getElementById('explanationTextarea');
+        this.confirmBtn = document.getElementById('modalConfirmBtn');
+        this.cancelBtn = document.getElementById('modalCancelBtn');
+        this.closeBtn = document.getElementById('modalCloseBtn');
+        
+        this.currentFileName = '';
+        this.onConfirmCallback = null;
+        
+        this.setupEventListeners();
+    }
+    
+    setupEventListeners() {
+        // 确定按钮
+        this.confirmBtn.addEventListener('click', () => {
+            this.handleConfirm();
+        });
+        
+        // 取消按钮
+        this.cancelBtn.addEventListener('click', () => {
+            this.hide();
+        });
+        
+        // 关闭按钮
+        this.closeBtn.addEventListener('click', () => {
+            this.hide();
+        });
+        
+        // 点击遮罩关闭
+        this.modal.addEventListener('click', (e) => {
+            if (e.target === this.modal) {
+                this.hide();
+            }
+        });
+        
+        // ESC键关闭
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.modal.classList.contains('show')) {
+                this.hide();
+            }
+        });
+        
+        // Ctrl+Enter 快速确定
+        this.textarea.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                e.preventDefault();
+                this.handleConfirm();
+            }
+        });
+    }
+    
+    show(word, fileName, chineseName = '', explanation = '', onConfirm = null, isNewCard = true) {
+        this.currentFileName = fileName;
+        this.onConfirmCallback = onConfirm;
+        
+        // 设置标题
+        if (isNewCard) {
+            this.modalTitle.textContent = '創建單詞卡';
+        } else {
+            this.modalTitle.textContent = '編輯單詞卡';
+        }
+        
+        this.wordInput.value = word;
+        this.chineseNameInput.value = chineseName;
+        this.textarea.value = explanation;
+        
+        this.modal.classList.add('show');
+        
+        // 延迟聚焦，确保动画完成
+        setTimeout(() => {
+            this.wordInput.focus();
+            this.wordInput.select();
+        }, 300);
+        
+        console.log('显示卡片编辑弹窗:', word, fileName, isNewCard ? '(新建)' : '(编辑)');
+    }
+    
+    hide() {
+        this.modal.classList.remove('show');
+        this.wordInput.value = '';
+        this.chineseNameInput.value = '';
+        this.textarea.value = '';
+        this.currentFileName = '';
+        this.onConfirmCallback = null;
+        
+        console.log('隐藏卡片编辑弹窗');
+    }
+    
+    async handleConfirm() {
+        const word = this.wordInput.value.trim();
+        const chineseName = this.chineseNameInput.value.trim();
+        const explanation = this.textarea.value.trim();
+        
+        if (!word) {
+            showTemporaryMessage('单词不能为空', 'error');
+            this.wordInput.focus();
+            return;
+        }
+        
+        try {
+            this.confirmBtn.disabled = true;
+            this.confirmBtn.textContent = '保存中...';
+            
+            if (this.onConfirmCallback) {
+                await this.onConfirmCallback(word, chineseName, explanation);
+            }
+            
+            showTemporaryMessage('卡片已保存', 'success');
+            this.hide();
+            
+        } catch (error) {
+            console.error('保存卡片失败:', error);
+            showTemporaryMessage('保存失败: ' + error.message, 'error');
+        } finally {
+            this.confirmBtn.disabled = false;
+            this.confirmBtn.textContent = '確定';
+        }
+    }
+}
+
+// 删除确认弹窗类
+class DeleteConfirmModal {
+    constructor() {
+        this.modal = document.getElementById('deleteConfirmModal');
+        this.message = document.getElementById('deleteConfirmMessage');
+        this.confirmBtn = document.getElementById('deleteConfirmBtn');
+        this.cancelBtn = document.getElementById('deleteCancelBtn');
+        this.closeBtn = document.getElementById('deleteModalCloseBtn');
+        
+        this.onConfirmCallback = null;
+        
+        // 绑定事件
+        this.cancelBtn.addEventListener('click', () => this.hide());
+        this.closeBtn.addEventListener('click', () => this.hide());
+        this.confirmBtn.addEventListener('click', () => this.handleConfirm());
+        
+        // 点击背景关闭
+        this.modal.addEventListener('click', (e) => {
+            if (e.target === this.modal) {
+                this.hide();
+            }
+        });
+        
+        // ESC键关闭
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.modal.style.display === 'flex') {
+                this.hide();
+            }
+        });
+    }
+    
+    show(message, onConfirm) {
+        this.message.textContent = message || '確定要刪除這張單詞卡嗎？此操作無法撤銷。';
+        this.onConfirmCallback = onConfirm;
+        this.modal.style.display = 'flex';
+        this.confirmBtn.focus();
+    }
+    
+    hide() {
+        this.modal.style.display = 'none';
+        this.onConfirmCallback = null;
+    }
+    
+    handleConfirm() {
+        if (this.onConfirmCallback) {
+            this.onConfirmCallback();
+        }
+        this.hide();
+    }
+}
+
+// 创建全局弹窗实例
+const explanationModal = new ExplanationModal();
+const deleteConfirmModal = new DeleteConfirmModal();
+
+// 翻译单词到中文
+async function translateWordToChinese(wordDiv, chineseNameDiv, translateButton, fileName) {
+    const word = wordDiv.textContent.trim();
+    if (!word) {
+        showTemporaryMessage('請先輸入單詞！', 'error');
+        return;
+    }
+    
+    // 显示加载状态
+    translateButton.classList.add('loading');
+    translateButton.textContent = '';
+    translateButton.disabled = true;
+    
+    try {
+        console.log('开始翻译单词:', word);
+        
+        // 使用免费的翻译API (MyMemory Translated)
+        const response = await fetch(
+            `https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|zh-CN`
+        );
+        
+        if (!response.ok) {
+            throw new Error('翻译服务请求失败');
+        }
+        
+        const data = await response.json();
+        console.log('翻译响应:', data);
+        
+        if (data.responseStatus === 200 && data.responseData && data.responseData.translatedText) {
+            const translation = data.responseData.translatedText;
+            
+            // 更新中文名字段
+            chineseNameDiv.textContent = translation;
+            
+            // 保存到数据库
+            try {
+                const currentWord = wordDiv.textContent;
+                const currentExplanation = chineseNameDiv.parentElement.parentElement.querySelector('.explanation-div').textContent || '';
+                await saveCardDataToSupabase(fileName, currentWord, translation, currentExplanation);
+                console.log('翻译结果已保存到数据库');
+            } catch (saveError) {
+                console.warn('保存翻译结果失败:', saveError);
+            }
+            
+            showTemporaryMessage(`翻譯成功：${translation}`, 'success');
+        } else {
+            throw new Error('翻译服务返回无效结果');
+        }
+        
+    } catch (error) {
+        console.error('翻译失败:', error);
+        showTemporaryMessage('翻譯失敗：' + error.message, 'error');
+    } finally {
+        // 恢复按钮状态
+        translateButton.classList.remove('loading');
+        translateButton.textContent = '译';
+        translateButton.disabled = false;
+    }
+}
+
+// 验证图片是否可以访问
+async function verifyImageAccessible(imageUrl, maxRetries = 8) {
+    console.log('验证图片可访问性:', imageUrl);
+    
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            // 添加时间戳避免缓存问题
+            const testUrl = imageUrl + (imageUrl.includes('?') ? '&' : '?') + 'test=' + Date.now();
+            const response = await fetch(testUrl, { method: 'HEAD' });
+            if (response.ok) {
+                console.log('图片验证成功，尝试次数:', i + 1);
+                // 额外等待一下确保CDN完全同步
+                if (i > 0) {
+                    console.log('等待CDN同步...');
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+                return true;
+            }
+            console.log(`图片验证失败，HTTP状态: ${response.status}, 尝试 ${i + 1}/${maxRetries}`);
+        } catch (error) {
+            console.log(`图片验证失败，尝试 ${i + 1}/${maxRetries}:`, error.message);
+        }
+        
+        // 等待一段时间后重试，使用更长的等待时间
+        if (i < maxRetries - 1) {
+            const waitTime = Math.min(2000 * (i + 1), 8000); // 最多等待8秒
+            console.log(`等待 ${waitTime}ms 后重试...`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+    }
+    
+    console.warn('图片验证失败，但继续创建卡片');
+    return false;
+}
+
+// 设置字段的直接编辑功能
+function setupInlineEditing(element, fileName, fieldType, onSave) {
+    let isEditing = false;
+    let originalContent = '';
+    
+    // 获取占位符文本
+    const getPlaceholder = () => {
+        switch(fieldType) {
+            case 'word': return '点击编辑单词...';
+            case 'chineseName': return '点击添加中文名...';
+            case 'explanation': return '点击添加解释...';
+            default: return '点击编辑...';
+        }
+    };
+    
+    // 点击进入编辑模式
+    element.addEventListener('click', (e) => {
+        e.stopPropagation();
+        
+        // 只在编辑模式下允许编辑
+        if (!document.body.classList.contains('edit-mode')) {
+            return;
+        }
+        
+        if (!isEditing) {
+            startEditing();
+        }
+    });
+    
+    // 键盘事件处理
+    element.addEventListener('keydown', async (e) => {
+        if (isEditing) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                await saveEditing();
+            } else if (e.key === 'Escape') {
+                cancelEditing();
+            }
+        }
+    });
+    
+    // 失去焦点时保存
+    element.addEventListener('blur', async () => {
+        if (isEditing) {
+            await saveEditing();
+        }
+    });
+    
+    function startEditing() {
+        isEditing = true;
+        originalContent = element.textContent;
+        
+        // 如果是占位符文本，清空
+        if (originalContent === getPlaceholder()) {
+            originalContent = '';
+            element.textContent = '';
+        }
+        
+        element.contentEditable = true;
+        element.classList.add('editing');
+        element.focus();
+        
+        // 选中所有文本
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        
+        console.log('开始编辑字段:', fieldType, fileName);
+    }
+    
+    async function saveEditing() {
+        if (!isEditing) return;
+        
+        const newContent = element.textContent.trim();
+        
+        // 单词字段不能为空
+        if (fieldType === 'word' && !newContent) {
+            showTemporaryMessage('单词不能为空', 'error');
+            element.focus();
+            return;
+        }
+        
+        try {
+            // 保存到云端
+            await onSave(newContent);
+            
+            // 更新UI状态
+            element.contentEditable = false;
+            element.classList.remove('editing');
+            isEditing = false;
+            
+            // 显示保存成功提示
+            showTemporaryMessage(`${getFieldDisplayName(fieldType)}已保存`, 'success');
+            
+            console.log('字段保存成功:', fieldType, fileName, newContent);
+            
+        } catch (error) {
+            console.error('保存字段失败:', error);
+            
+            // 恢复原内容
+            element.textContent = originalContent;
+            element.contentEditable = false;
+            element.classList.remove('editing');
+            isEditing = false;
+            
+            showTemporaryMessage('保存失败: ' + error.message, 'error');
+        }
+    }
+    
+    function cancelEditing() {
+        if (!isEditing) return;
+        
+        element.textContent = originalContent;
+        element.contentEditable = false;
+        element.classList.remove('editing');
+        isEditing = false;
+        
+        console.log('取消编辑字段:', fieldType, fileName);
+    }
+    
+    // 获取字段显示名称
+    function getFieldDisplayName(type) {
+        switch(type) {
+            case 'word': return '单词';
+            case 'chineseName': return '中文名';
+            case 'explanation': return '解释';
+            default: return '字段';
+        }
+    }
+}

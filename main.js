@@ -496,7 +496,9 @@ async function saveImageToSupabase(imageUrl, searchTerm) {
                         if (wordDiv) wordDiv.textContent = word;
                         if (chineseNameDiv) chineseNameDiv.textContent = chineseName;
                         if (explanationDiv) {
-                            explanationDiv.textContent = explanation;
+                            // 将换行符转换为HTML换行标签
+                            const explanationWithBreaks = explanation.replace(/\n/g, '<br>');
+                            explanationDiv.innerHTML = explanationWithBreaks;
                             // 检查解释翻译按钮显示
                             updateExplanationTranslateButtonVisibility(explanationDiv);
                         }
@@ -684,6 +686,11 @@ async function loadFlashcards() {
             applySavedSortMode();
             // 檢查所有翻譯按鈕的顯示狀態
             checkAllExplanationTranslateButtons();
+            // 更新群組指示器
+            if (groupManager) {
+                groupManager.updateCardGroupIndicators();
+                groupManager.filterCardsByGroups();
+            }
         }, 200);
         
     } catch (error) {
@@ -717,8 +724,8 @@ async function loadMoreFlashcards() {
             
             const imageUrl = urlData.publicUrl;
             
-            // 創建懶加載的單詞卡
-            createLazyFlashcard(imageUrl, cardData.word, cardData.fileName, cardData.timestamp);
+            // 創建懶加載的單詞卡（添加到底部）
+            createLazyFlashcard(imageUrl, cardData.word, cardData.fileName, cardData.timestamp, true);
             
         } catch (error) {
             console.error('創建卡片失敗:', cardData.fileName, error);
@@ -1007,7 +1014,7 @@ function speakWord(word) {
 }
 
 // 創建懶加載的單詞卡（只顯示佔位符，圖片稍後載入）
-function createLazyFlashcard(imageUrl, word, fileName, timestamp = Date.now()) {
+function createLazyFlashcard(imageUrl, word, fileName, timestamp = Date.now(), appendToBottom = false) {
     const flashcardsDiv = document.getElementById('flashcards');
     
     const card = document.createElement('div');
@@ -1147,12 +1154,25 @@ function createLazyFlashcard(imageUrl, word, fileName, timestamp = Date.now()) {
     card.appendChild(explanationContainer);
     card.appendChild(deleteButton);
     
-    // 將新卡片插入到最上方（與createFlashcard保持一致）
-    if (flashcardsDiv.firstChild) {
-        flashcardsDiv.insertBefore(card, flashcardsDiv.firstChild);
-    } else {
+    // 根據參數決定插入位置
+    if (appendToBottom) {
+        // 添加到底部（用於無限滾動）
         flashcardsDiv.appendChild(card);
+    } else {
+        // 插入到最上方（用於新建卡片）
+        if (flashcardsDiv.firstChild) {
+            flashcardsDiv.insertBefore(card, flashcardsDiv.firstChild);
+        } else {
+            flashcardsDiv.appendChild(card);
+        }
     }
+    
+    // 異步添加群組指示器
+    setTimeout(() => {
+        if (groupManager) {
+            groupManager.updateSingleCardGroupIndicator(card, fileName);
+        }
+    }, 100);
 }
 
 // 修改 createFlashcard 函數，添加漸進式載入效果（用於直接載入的圖片）
@@ -1328,10 +1348,20 @@ function createFlashcard(imageUrl, word, fileName, timestamp = Date.now()) {
     } else {
         flashcardsDiv.appendChild(card);
     }
+    
+    // 異步添加群組指示器
+    setTimeout(() => {
+        if (groupManager) {
+            groupManager.updateSingleCardGroupIndicator(card, fileName);
+        }
+    }, 100);
 }
 
 // 在初始化部分添加拖放事件監聽
 document.addEventListener('DOMContentLoaded', () => {
+    // 初始化群組管理器
+    groupManager = new GroupManager();
+    
     const dropZone = document.getElementById('dropZone');
     
     // 阻止默認拖放行為
@@ -1974,7 +2004,14 @@ async function loadCardDataForCard(wordDiv, chineseNameDiv, explanationDiv, file
         }
         
         chineseNameDiv.textContent = cardData.chineseName;
-        explanationDiv.textContent = cardData.explanation;
+        
+        // 对于解释字段，将换行符转换为HTML换行标签
+        if (cardData.explanation) {
+            const explanationWithBreaks = cardData.explanation.replace(/\n/g, '<br>');
+            explanationDiv.innerHTML = explanationWithBreaks;
+        } else {
+            explanationDiv.innerHTML = '';
+        }
         
         // 检查解释内容并控制翻译按钮显示
         updateExplanationTranslateButtonVisibility(explanationDiv);
@@ -1983,7 +2020,7 @@ async function loadCardDataForCard(wordDiv, chineseNameDiv, explanationDiv, file
     } catch (error) {
         console.error('加载卡片数据失败:', fileName, error);
         chineseNameDiv.textContent = '';
-        explanationDiv.textContent = '';
+        explanationDiv.innerHTML = '';
         
         // 即使加载失败也要检查翻译按钮显示
         updateExplanationTranslateButtonVisibility(explanationDiv);
@@ -2241,6 +2278,510 @@ class DeleteConfirmModal {
 // 创建全局弹窗实例
 const explanationModal = new ExplanationModal();
 const deleteConfirmModal = new DeleteConfirmModal();
+
+// 群組管理相關變數
+let groups = []; // 存儲所有群組
+let cardGroups = {}; // 存儲每張卡片的群組分配 {fileName: groupId}
+
+// 24種預設顏色
+const GROUP_COLORS = [
+    '#e53e3e', '#d53f8c', '#9f7aea', '#667eea',
+    '#4299e1', '#0bc5ea', '#00b5d8', '#38b2ac',
+    '#48bb78', '#68d391', '#9ae6b4', '#c6f6d5',
+    '#f6e05e', '#ed8936', '#fd9801', '#ff6b35',
+    '#ff5722', '#e91e63', '#9c27b0', '#673ab7',
+    '#3f51b5', '#2196f3', '#03a9f4', '#00bcd4'
+];
+
+// 當前編輯的群組
+let currentEditingGroup = null;
+
+// 群組管理功能
+class GroupManager {
+    constructor() {
+        this.showNoGroupCards = true; // 預設顯示無群組卡片
+        this.initializeEventListeners();
+        this.loadGroupsFromCloud();
+    }
+
+    // 初始化事件監聽器
+    initializeEventListeners() {
+        // 新增群組按鈕
+        document.getElementById('addGroupBtn').addEventListener('click', () => {
+            this.showGroupEditModal();
+        });
+
+        // 無群組按鈕
+        document.getElementById('noGroupBtn').addEventListener('click', () => {
+            this.toggleNoGroupVisibility();
+        });
+
+        // 群組編輯彈窗事件
+        document.getElementById('groupConfirmBtn').addEventListener('click', () => {
+            this.handleGroupSave();
+        });
+
+        document.getElementById('groupCancelBtn').addEventListener('click', () => {
+            this.hideGroupEditModal();
+        });
+
+        document.getElementById('groupModalCloseBtn').addEventListener('click', () => {
+            this.hideGroupEditModal();
+        });
+
+        // 刪除群組事件
+        document.getElementById('groupDeleteBtn').addEventListener('click', () => {
+            this.showDeleteGroupModal();
+        });
+
+        // 刪除群組確認彈窗事件
+        document.getElementById('deleteGroupConfirmBtn').addEventListener('click', () => {
+            this.handleGroupDelete();
+        });
+        
+        document.getElementById('deleteGroupCancelBtn').addEventListener('click', () => {
+            this.hideDeleteGroupModal();
+        });
+        
+        document.getElementById('deleteGroupModalCloseBtn').addEventListener('click', () => {
+            this.hideDeleteGroupModal();
+        });
+
+        // 群組選擇彈窗事件
+        document.getElementById('groupSelectCancelBtn').addEventListener('click', () => {
+            this.hideGroupSelectModal();
+        });
+
+        document.getElementById('groupSelectModalCloseBtn').addEventListener('click', () => {
+            this.hideGroupSelectModal();
+        });
+
+        // ESC鍵關閉彈窗
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.hideGroupEditModal();
+                this.hideGroupSelectModal();
+            }
+        });
+    }
+
+    // 創建新群組
+    createGroup(name, color) {
+        const group = {
+            id: 'group_' + Date.now(),
+            name: name,
+            color: color,
+            visible: true,
+            createdAt: new Date().toISOString()
+        };
+        
+        groups.push(group);
+        this.renderGroups();
+        this.saveGroupsToCloud();
+        return group;
+    }
+
+    // 更新群組
+    updateGroup(groupId, name, color) {
+        const group = groups.find(g => g.id === groupId);
+        if (group) {
+            group.name = name;
+            group.color = color;
+            group.updatedAt = new Date().toISOString();
+            this.renderGroups();
+            this.updateCardGroupIndicators(); // 更新卡片群組指示器
+            this.saveGroupsToCloud();
+        }
+    }
+
+    // 刪除群組
+    deleteGroup(groupId) {
+        groups = groups.filter(g => g.id !== groupId);
+        // 清除該群組的卡片分配
+        Object.keys(cardGroups).forEach(fileName => {
+            if (cardGroups[fileName] === groupId) {
+                delete cardGroups[fileName];
+            }
+        });
+        this.renderGroups();
+        this.updateCardGroupIndicators();
+        this.saveGroupsToCloud();
+        this.saveCardGroupsToCloud();
+    }
+
+    // 切換群組可見性
+    toggleGroupVisibility(groupId) {
+        const group = groups.find(g => g.id === groupId);
+        if (group) {
+            group.visible = !group.visible;
+            this.renderGroups();
+            this.filterCardsByGroups();
+            this.saveGroupsToCloud();
+        }
+    }
+
+    // 切換無群組卡片可見性
+    toggleNoGroupVisibility() {
+        this.showNoGroupCards = !this.showNoGroupCards;
+        this.updateNoGroupButton();
+        this.filterCardsByGroups();
+    }
+
+    // 更新無群組按鈕狀態
+    updateNoGroupButton() {
+        const noGroupBtn = document.getElementById('noGroupBtn');
+        if (this.showNoGroupCards) {
+            noGroupBtn.classList.remove('inactive');
+        } else {
+            noGroupBtn.classList.add('inactive');
+        }
+    }
+
+    // 渲染群組按鈕
+    renderGroups() {
+        const groupsList = document.getElementById('groupsList');
+        
+        // 保留新增群組按鈕和無群組按鈕，只移除其他群組按鈕
+        const existingGroupButtons = groupsList.querySelectorAll('.group-button');
+        existingGroupButtons.forEach(btn => btn.remove());
+        
+        // 確保無群組按鈕狀態正確
+        this.updateNoGroupButton();
+
+        groups.forEach(group => {
+            const groupButton = document.createElement('button');
+            groupButton.className = `group-button ${!group.visible ? 'inactive' : ''}`;
+            groupButton.style.backgroundColor = group.color;
+            groupButton.textContent = group.name;
+            groupButton.dataset.groupId = group.id;
+
+            // 添加編輯圖標
+            const editIcon = document.createElement('div');
+            editIcon.className = 'edit-icon';
+            editIcon.textContent = '✏';
+            groupButton.appendChild(editIcon);
+
+            // 群組按鈕點擊事件（切換可見性）
+            groupButton.addEventListener('click', (e) => {
+                if (!e.target.classList.contains('edit-icon')) {
+                    this.toggleGroupVisibility(group.id);
+                }
+            });
+
+            // 編輯圖標點擊事件
+            editIcon.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.showGroupEditModal(group);
+            });
+
+            groupsList.appendChild(groupButton);
+        });
+    }
+
+    // 顯示群組編輯彈窗
+    showGroupEditModal(group = null) {
+        currentEditingGroup = group;
+        const modal = document.getElementById('groupEditModal');
+        const title = document.getElementById('groupModalTitle');
+        const nameInput = document.getElementById('groupNameInput');
+        const deleteBtn = document.getElementById('groupDeleteBtn');
+
+        if (group) {
+            title.textContent = '編輯群組';
+            nameInput.value = group.name;
+            deleteBtn.style.display = 'block'; // 編輯時顯示刪除按鈕
+        } else {
+            title.textContent = '新增群組';
+            nameInput.value = '';
+            deleteBtn.style.display = 'none'; // 新增時隱藏刪除按鈕
+        }
+
+        this.renderColorPicker(group ? group.color : GROUP_COLORS[0]);
+        modal.classList.add('show');
+        nameInput.focus();
+    }
+
+    // 隱藏群組編輯彈窗
+    hideGroupEditModal() {
+        document.getElementById('groupEditModal').classList.remove('show');
+        currentEditingGroup = null;
+    }
+
+    // 顯示刪除群組確認彈窗
+    showDeleteGroupModal() {
+        if (!currentEditingGroup) return;
+        
+        const modal = document.getElementById('deleteGroupModal');
+        const groupNameSpan = document.getElementById('deleteGroupName');
+        
+        groupNameSpan.textContent = currentEditingGroup.name;
+        modal.classList.add('show');
+    }
+
+    // 隱藏刪除群組確認彈窗
+    hideDeleteGroupModal() {
+        document.getElementById('deleteGroupModal').classList.remove('show');
+    }
+
+    // 渲染顏色選擇器
+    renderColorPicker(selectedColor) {
+        const colorPicker = document.getElementById('colorPicker');
+        colorPicker.innerHTML = '';
+
+        GROUP_COLORS.forEach(color => {
+            const colorOption = document.createElement('div');
+            colorOption.className = `color-option ${color === selectedColor ? 'selected' : ''}`;
+            colorOption.style.backgroundColor = color;
+            colorOption.dataset.color = color;
+
+            colorOption.addEventListener('click', () => {
+                document.querySelectorAll('.color-option').forEach(opt => {
+                    opt.classList.remove('selected');
+                });
+                colorOption.classList.add('selected');
+            });
+
+            colorPicker.appendChild(colorOption);
+        });
+    }
+
+    // 處理群組保存
+    handleGroupSave() {
+        const name = document.getElementById('groupNameInput').value.trim();
+        const selectedColor = document.querySelector('.color-option.selected')?.dataset.color;
+
+        if (!name) {
+            showTemporaryMessage('請輸入群組名稱', 'error');
+            return;
+        }
+
+        if (currentEditingGroup) {
+            this.updateGroup(currentEditingGroup.id, name, selectedColor);
+            showTemporaryMessage('群組已更新', 'success');
+        } else {
+            this.createGroup(name, selectedColor);
+            showTemporaryMessage('群組已創建', 'success');
+        }
+
+        this.hideGroupEditModal();
+    }
+
+    // 處理群組刪除
+    async handleGroupDelete() {
+        if (!currentEditingGroup) return;
+        
+        try {
+            const groupId = currentEditingGroup.id;
+            const groupName = currentEditingGroup.name;
+            
+            // 從群組列表中移除
+            groups = groups.filter(g => g.id !== groupId);
+            
+            // 清除所有分配到此群組的卡片
+            const cardsToUpdate = [];
+            for (const [fileName, assignedGroupId] of Object.entries(cardGroups)) {
+                if (assignedGroupId === groupId) {
+                    delete cardGroups[fileName];
+                    cardsToUpdate.push(fileName);
+                }
+            }
+            
+            // 保存到雲端
+            await this.saveGroupsToCloud();
+            await this.saveCardGroupsToCloud();
+            
+            // 更新UI
+            this.renderGroups();
+            this.updateCardGroupIndicators();
+            this.filterCardsByGroups();
+            
+            // 隱藏所有彈窗
+            this.hideDeleteGroupModal();
+            this.hideGroupEditModal();
+            
+            showTemporaryMessage(`群組 "${groupName}" 已刪除`, 'success');
+            console.log(`群組 "${groupName}" 已刪除，${cardsToUpdate.length} 張卡片已取消群組分配`);
+            
+        } catch (error) {
+            console.error('刪除群組失敗:', error);
+            showTemporaryMessage('刪除群組失敗，請稍後重試', 'error');
+        }
+    }
+
+    // 根據群組過濾卡片
+    filterCardsByGroups() {
+        const flashcards = document.querySelectorAll('.flashcard');
+        
+        flashcards.forEach(card => {
+            const fileName = card.dataset.fileName;
+            const cardGroupId = cardGroups[fileName];
+            
+            if (!cardGroupId) {
+                // 沒有群組的卡片根據無群組按鈕狀態顯示
+                card.style.display = this.showNoGroupCards ? 'flex' : 'none';
+            } else {
+                const group = groups.find(g => g.id === cardGroupId);
+                if (group && group.visible) {
+                    card.style.display = 'flex';
+                } else {
+                    card.style.display = 'none';
+                }
+            }
+        });
+    }
+
+    // 更新卡片群組指示器
+    updateCardGroupIndicators() {
+        const flashcards = document.querySelectorAll('.flashcard');
+        
+        flashcards.forEach(card => {
+            const fileName = card.dataset.fileName;
+            this.updateSingleCardGroupIndicator(card, fileName);
+        });
+    }
+
+    // 更新單個卡片的群組指示器
+    updateSingleCardGroupIndicator(card, fileName) {
+        const cardGroupId = cardGroups[fileName];
+        
+        // 移除現有的群組指示器
+        const existingIndicator = card.querySelector('.group-indicator');
+        if (existingIndicator) {
+            existingIndicator.remove();
+        }
+        
+        // 創建可點擊的群組指示器
+        const indicator = document.createElement('div');
+        indicator.className = 'group-indicator clickable';
+        indicator.title = '點擊設定群組';
+        
+        // 添加點擊事件
+        indicator.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.showGroupSelectModal(fileName);
+        });
+        
+        if (cardGroupId) {
+            const group = groups.find(g => g.id === cardGroupId);
+            if (group) {
+                indicator.style.backgroundColor = group.color;
+                indicator.textContent = group.name;
+                indicator.classList.remove('no-group');
+            } else {
+                // 群組不存在時顯示灰色圓圈
+                indicator.classList.add('no-group');
+                indicator.style.backgroundColor = '#666666';
+                indicator.textContent = '';
+            }
+        } else {
+            // 沒有群組時顯示灰色圓圈
+            indicator.classList.add('no-group');
+            indicator.style.backgroundColor = '#666666';
+            indicator.textContent = '';
+        }
+        
+        card.appendChild(indicator);
+    }
+
+    // 顯示群組選擇彈窗
+    showGroupSelectModal(fileName) {
+        const modal = document.getElementById('groupSelectModal');
+        const groupsList = document.getElementById('groupSelectList');
+        
+        groupsList.innerHTML = '';
+        
+        // 添加"無群組"選項
+        const noGroupItem = document.createElement('div');
+        noGroupItem.className = `group-select-item ${!cardGroups[fileName] ? 'selected' : ''}`;
+        noGroupItem.innerHTML = `
+            <div class="group-color" style="background-color: #666;"></div>
+            <div class="group-name">無群組</div>
+        `;
+        noGroupItem.addEventListener('click', () => {
+            this.assignCardToGroup(fileName, null);
+            this.hideGroupSelectModal();
+        });
+        groupsList.appendChild(noGroupItem);
+
+        // 添加群組選項
+        groups.forEach(group => {
+            const groupItem = document.createElement('div');
+            groupItem.className = `group-select-item ${cardGroups[fileName] === group.id ? 'selected' : ''}`;
+            groupItem.innerHTML = `
+                <div class="group-color" style="background-color: ${group.color};"></div>
+                <div class="group-name">${group.name}</div>
+            `;
+            groupItem.addEventListener('click', () => {
+                this.assignCardToGroup(fileName, group.id);
+                this.hideGroupSelectModal();
+            });
+            groupsList.appendChild(groupItem);
+        });
+
+        modal.classList.add('show');
+    }
+
+    // 隱藏群組選擇彈窗
+    hideGroupSelectModal() {
+        document.getElementById('groupSelectModal').classList.remove('show');
+    }
+
+    // 分配卡片到群組
+    assignCardToGroup(fileName, groupId) {
+        if (groupId) {
+            cardGroups[fileName] = groupId;
+        } else {
+            delete cardGroups[fileName];
+        }
+        
+        this.updateCardGroupIndicators();
+        this.saveCardGroupsToCloud();
+        showTemporaryMessage('群組分配已更新', 'success');
+    }
+
+    // 保存群組到雲端
+    async saveGroupsToCloud() {
+        try {
+            await saveCardDataToSupabase('__GROUPS_DATA__', 'groups', '', JSON.stringify(groups));
+            console.log('群組數據已保存到雲端');
+        } catch (error) {
+            console.error('保存群組數據失敗:', error);
+        }
+    }
+
+    // 保存卡片群組分配到雲端
+    async saveCardGroupsToCloud() {
+        try {
+            await saveCardDataToSupabase('__CARD_GROUPS_DATA__', 'card_groups', '', JSON.stringify(cardGroups));
+            console.log('卡片群組分配已保存到雲端');
+        } catch (error) {
+            console.error('保存卡片群組分配失敗:', error);
+        }
+    }
+
+    // 從雲端載入群組
+    async loadGroupsFromCloud() {
+        try {
+            const groupsData = await loadCardDataFromSupabase('__GROUPS_DATA__');
+            if (groupsData.explanation) {
+                groups = JSON.parse(groupsData.explanation);
+                this.renderGroups();
+            }
+
+            const cardGroupsData = await loadCardDataFromSupabase('__CARD_GROUPS_DATA__');
+            if (cardGroupsData.explanation) {
+                cardGroups = JSON.parse(cardGroupsData.explanation);
+            }
+
+            console.log('群組數據已從雲端載入');
+        } catch (error) {
+            console.error('從雲端載入群組數據失敗:', error);
+        }
+    }
+}
+
+// 創建群組管理器實例
+let groupManager;
 
 // 翻译解释到中文并显示悬浮窗
 async function translateExplanationToChinese(explanationDiv, translateButton, buttonElement) {
@@ -2525,12 +3066,23 @@ function setupInlineEditing(element, fileName, fieldType, onSave) {
     
     function startEditing() {
         isEditing = true;
-        originalContent = element.textContent;
+        
+        // 对于解释字段，保存HTML内容以保持格式
+        if (fieldType === 'explanation') {
+            originalContent = element.innerHTML;
+        } else {
+            originalContent = element.textContent;
+        }
         
         // 如果是占位符文本，清空
-        if (originalContent === getPlaceholder()) {
+        const displayText = element.textContent;
+        if (displayText === getPlaceholder()) {
             originalContent = '';
-            element.textContent = '';
+            if (fieldType === 'explanation') {
+                element.innerHTML = '';
+            } else {
+                element.textContent = '';
+            }
         }
         
         element.contentEditable = true;
@@ -2550,7 +3102,16 @@ function setupInlineEditing(element, fileName, fieldType, onSave) {
     async function saveEditing() {
         if (!isEditing) return;
         
-        const newContent = element.textContent.trim();
+        let newContent;
+        
+        // 对于解释字段，保存HTML格式以保持换行
+        if (fieldType === 'explanation') {
+            newContent = element.innerHTML.trim();
+            // 清理不必要的HTML标签，只保留换行
+            newContent = newContent.replace(/<div>/g, '<br>').replace(/<\/div>/g, '').replace(/<br\s*\/?>/g, '\n');
+        } else {
+            newContent = element.textContent.trim();
+        }
         
         // 单词字段不能为空
         if (fieldType === 'word' && !newContent) {
@@ -2582,7 +3143,11 @@ function setupInlineEditing(element, fileName, fieldType, onSave) {
             console.error('保存字段失败:', error);
             
             // 恢复原内容
-            element.textContent = originalContent;
+            if (fieldType === 'explanation') {
+                element.innerHTML = originalContent;
+            } else {
+                element.textContent = originalContent;
+            }
             element.contentEditable = false;
             element.classList.remove('editing');
             isEditing = false;
@@ -2594,7 +3159,12 @@ function setupInlineEditing(element, fileName, fieldType, onSave) {
     function cancelEditing() {
         if (!isEditing) return;
         
-        element.textContent = originalContent;
+        // 根据字段类型恢复内容
+        if (fieldType === 'explanation') {
+            element.innerHTML = originalContent;
+        } else {
+            element.textContent = originalContent;
+        }
         element.contentEditable = false;
         element.classList.remove('editing');
         isEditing = false;

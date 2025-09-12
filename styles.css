@@ -189,6 +189,7 @@ body {
     line-height: 1.4;
     text-align: left;
     flex: 1;
+    white-space: pre-wrap;
 }
 
 .flashcard .explanation-div:hover {
@@ -1153,6 +1154,24 @@ body.edit-mode .flashcard .explanation-div:empty::before {
     background-color: #2c5aa0;
 }
 
+.delete-btn {
+    background-color: #e53e3e;
+    color: white;
+}
+
+.delete-btn:hover {
+    background-color: #c53030;
+}
+
+/* 警告文字樣式 */
+.warning-text {
+    color: #f56565;
+    font-size: 13px;
+    margin-top: 8px;
+    line-height: 1.4;
+    font-weight: 400;
+}
+
 .confirm-btn:disabled {
     background-color: #4a5568;
     cursor: not-allowed;
@@ -1176,6 +1195,252 @@ body.edit-mode .flashcard .explanation-div:empty::before {
     #explanationTextarea {
         height: 100px;
     }
+}
+
+/* 群組管理區域樣式 */
+.groups-section {
+    margin: 20px 0;
+}
+
+
+.add-group-button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 16px;
+    background-color: #3182ce;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    min-height: 36px;
+    border: 2px solid transparent;
+}
+
+.add-group-button:hover {
+    background-color: #2c5aa0;
+    border-color: #4a90e2;
+}
+
+/* 無群組按鈕樣式 */
+.no-group-button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background-color: #666666;
+    border: 2px solid transparent;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.no-group-button:hover {
+    background-color: #777777;
+    border-color: #888888;
+}
+
+.no-group-button.inactive {
+    opacity: 0.5;
+    background-color: #444444;
+}
+
+.no-group-button.inactive:hover {
+    background-color: #555555;
+}
+
+.groups-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    min-height: 40px;
+}
+
+/* 群組按鈕樣式 */
+.group-button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: white;
+    transition: all 0.2s ease;
+    min-width: 80px;
+    justify-content: center;
+}
+
+.group-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.group-button.inactive {
+    opacity: 0.5;
+    filter: brightness(0.7);
+}
+
+.group-button .edit-icon {
+    position: absolute;
+    right: 4px;
+    top: 4px;
+    width: 16px;
+    height: 16px;
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.group-button:hover .edit-icon {
+    opacity: 1;
+}
+
+.group-button .edit-icon:hover {
+    background-color: rgba(255, 255, 255, 0.3);
+}
+
+/* 顏色選擇器樣式 */
+.color-picker {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.color-option {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.color-option:hover {
+    transform: scale(1.1);
+    border-color: #e0e0e0;
+}
+
+.color-option.selected {
+    border-color: #3182ce;
+    border-width: 3px;
+    transform: scale(1.1);
+}
+
+/* 群組選擇列表樣式 */
+.group-select-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 400px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+/* 自定義滾動條樣式 */
+.group-select-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.group-select-list::-webkit-scrollbar-track {
+    background: #2d2d2d;
+    border-radius: 3px;
+}
+
+.group-select-list::-webkit-scrollbar-thumb {
+    background: #666666;
+    border-radius: 3px;
+}
+
+.group-select-list::-webkit-scrollbar-thumb:hover {
+    background: #888888;
+}
+
+.group-select-item {
+    display: flex;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid #404040;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.group-select-item:hover {
+    background-color: #404040;
+}
+
+.group-select-item.selected {
+    background-color: #3182ce;
+    border-color: #3182ce;
+}
+
+.group-select-item .group-color {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    margin-right: 12px;
+}
+
+.group-select-item .group-name {
+    color: #e0e0e0;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+/* 圖卡群組標識樣式 - 可點擊版本 */
+.flashcard .group-indicator {
+    position: absolute;
+    right: 5px;
+    top: 5px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    color: white;
+    opacity: 0.9;
+    transition: all 0.2s ease;
+}
+
+/* 可點擊的群組指示器樣式 */
+.flashcard .group-indicator.clickable {
+    cursor: pointer;
+    opacity: 0.8;
+}
+
+.flashcard .group-indicator.clickable:hover {
+    opacity: 1;
+    transform: scale(1.1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* 沒有群組時的圓圈樣式 */
+.flashcard .group-indicator.no-group {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    padding: 0;
+    min-width: 12px;
+    min-height: 12px;
+}
+
+/* 沒有群組時的懸停效果 */
+.flashcard .group-indicator.no-group:hover {
+    background-color: #888888 !important;
 }
 
 /* 翻译悬浮窗样式 */

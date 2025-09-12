@@ -63,6 +63,15 @@
             <p>將圖片拖放到這裡</p>
         </div>
         
+        <!-- 群組控制區域 -->
+        <div class="groups-section">
+            <div id="groupsList" class="groups-list">
+                <button id="addGroupBtn" class="add-group-button">+ 新增群組</button>
+                <button id="noGroupBtn" class="no-group-button" title="無群組圖卡"></button>
+                <!-- 其他群組按鍵會動態添加到這裡 -->
+            </div>
+        </div>
+        
         <div id="searchResults" class="image-grid"></div>
 
         <div class="flashcards-section">
@@ -112,6 +121,69 @@
             <div class="modal-footer">
                 <button id="deleteCancelBtn" class="modal-btn cancel-btn">取消</button>
                 <button id="deleteConfirmBtn" class="modal-btn confirm-btn">確定刪除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 群組編輯弹窗 -->
+    <div id="groupEditModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="groupModalTitle">編輯群組</h3>
+                <button class="modal-close" id="groupModalCloseBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="input-group">
+                    <label for="groupNameInput">群組名稱：</label>
+                    <input type="text" id="groupNameInput" placeholder="請輸入群組名稱">
+                </div>
+                <div class="input-group">
+                    <label>群組顏色：</label>
+                    <div id="colorPicker" class="color-picker">
+                        <!-- 24種顏色會動態生成 -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="groupDeleteBtn" class="modal-btn delete-btn">刪除群組</button>
+                <button id="groupCancelBtn" class="modal-btn cancel-btn">取消</button>
+                <button id="groupConfirmBtn" class="modal-btn confirm-btn">確定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 群組選擇弹窗 -->
+    <div id="groupSelectModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>選擇群組</h3>
+                <button class="modal-close" id="groupSelectModalCloseBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="groupSelectList" class="group-select-list">
+                    <!-- 群組選項會動態生成 -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="groupSelectCancelBtn" class="modal-btn cancel-btn">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 刪除群組確認弹窗 -->
+    <div id="deleteGroupModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>確認刪除群組</h3>
+                <button class="modal-close" id="deleteGroupModalCloseBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>確定要刪除群組 "<span id="deleteGroupName"></span>" 嗎？</p>
+                <p class="warning-text">此操作無法撤銷，所有分配到此群組的圖卡將變為未分組狀態。</p>
+            </div>
+            <div class="modal-footer">
+                <button id="deleteGroupCancelBtn" class="modal-btn cancel-btn">取消</button>
+                <button id="deleteGroupConfirmBtn" class="modal-btn delete-btn">確定刪除</button>
             </div>
         </div>
     </div>

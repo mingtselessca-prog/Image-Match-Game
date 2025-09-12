@@ -989,8 +989,8 @@ document.addEventListener('DOMContentLoaded', () => {
 function speakWord(word) {
     if (word) {
         responsiveVoice.cancel(); // 如果有正在播放的語音，先停止
-        responsiveVoice.speak(word, "UK English Female", {
-            rate: 0.8,
+        responsiveVoice.speak(word, "US English Male", {
+            rate: 1,
             pitch: 1,
             volume: 1
         });
@@ -1046,11 +1046,31 @@ function createLazyFlashcard(imageUrl, word, fileName, timestamp = Date.now()) {
     chineseNameContainer.appendChild(chineseNameDiv);
     chineseNameContainer.appendChild(translateButton);
     
+    // 创建解释容器
+    const explanationContainer = document.createElement('div');
+    explanationContainer.className = 'explanation-container';
+    
     // 创建解释字段
     const explanationDiv = document.createElement('div');
     explanationDiv.className = 'explanation-div';
     explanationDiv.contentEditable = false;
     explanationDiv.dataset.fileName = fileName;
+    
+    // 创建解释翻译按钮
+    const explanationTranslateButton = document.createElement('button');
+    explanationTranslateButton.className = 'explanation-translate-button';
+    explanationTranslateButton.textContent = '译';
+    explanationTranslateButton.title = '翻译解释到中文';
+    
+    // 解释翻译按钮点击事件
+    explanationTranslateButton.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await translateExplanationToChinese(explanationDiv, explanationTranslateButton, e.target);
+    });
+    
+    // 将解释字段和翻译按钮添加到容器
+    explanationContainer.appendChild(explanationDiv);
+    explanationContainer.appendChild(explanationTranslateButton);
     
     // 异步加载卡片数据
     loadCardDataForCard(wordDiv, chineseNameDiv, explanationDiv, fileName);
@@ -1115,7 +1135,7 @@ function createLazyFlashcard(imageUrl, word, fileName, timestamp = Date.now()) {
     card.appendChild(placeholder);
     card.appendChild(wordDiv);
     card.appendChild(chineseNameContainer);
-    card.appendChild(explanationDiv);
+    card.appendChild(explanationContainer);
     card.appendChild(deleteButton);
     
     // 將新卡片插入到最上方（與createFlashcard保持一致）
@@ -1201,11 +1221,31 @@ function createFlashcard(imageUrl, word, fileName, timestamp = Date.now()) {
     chineseNameContainer.appendChild(chineseNameDiv);
     chineseNameContainer.appendChild(translateButton);
     
+    // 创建解释容器
+    const explanationContainer = document.createElement('div');
+    explanationContainer.className = 'explanation-container';
+    
     // 创建解释字段
     const explanationDiv = document.createElement('div');
     explanationDiv.className = 'explanation-div';
     explanationDiv.contentEditable = false;
     explanationDiv.dataset.fileName = fileName;
+    
+    // 创建解释翻译按钮
+    const explanationTranslateButton = document.createElement('button');
+    explanationTranslateButton.className = 'explanation-translate-button';
+    explanationTranslateButton.textContent = '译';
+    explanationTranslateButton.title = '翻译解释到中文';
+    
+    // 解释翻译按钮点击事件
+    explanationTranslateButton.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await translateExplanationToChinese(explanationDiv, explanationTranslateButton, e.target);
+    });
+    
+    // 将解释字段和翻译按钮添加到容器
+    explanationContainer.appendChild(explanationDiv);
+    explanationContainer.appendChild(explanationTranslateButton);
     
     // 异步加载卡片数据
     loadCardDataForCard(wordDiv, chineseNameDiv, explanationDiv, fileName);
@@ -1270,7 +1310,7 @@ function createFlashcard(imageUrl, word, fileName, timestamp = Date.now()) {
     card.appendChild(img);
     card.appendChild(wordDiv);
     card.appendChild(chineseNameContainer);
-    card.appendChild(explanationDiv);
+    card.appendChild(explanationContainer);
     card.appendChild(deleteButton);
     
     // 將新卡片插入到最上方
@@ -1915,6 +1955,28 @@ class ExplanationModal {
                 this.handleConfirm();
             }
         });
+        
+        // 為所有輸入框添加純文字貼上功能
+        [this.wordInput, this.chineseNameInput, this.textarea].forEach(input => {
+            input.addEventListener('paste', (e) => {
+                e.preventDefault();
+                
+                // 獲取剪貼簿的純文字內容
+                const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+                
+                // 獲取當前光標位置
+                const start = input.selectionStart;
+                const end = input.selectionEnd;
+                
+                // 替換選中的文字或在光標位置插入文字
+                const value = input.value;
+                input.value = value.slice(0, start) + text + value.slice(end);
+                
+                // 將光標移到插入文字的末尾
+                const newPosition = start + text.length;
+                input.setSelectionRange(newPosition, newPosition);
+            });
+        });
     }
     
     show(word, fileName, chineseName = '', explanation = '', onConfirm = null, isNewCard = true) {
@@ -2040,6 +2102,120 @@ class DeleteConfirmModal {
 // 创建全局弹窗实例
 const explanationModal = new ExplanationModal();
 const deleteConfirmModal = new DeleteConfirmModal();
+
+// 翻译解释到中文并显示悬浮窗
+async function translateExplanationToChinese(explanationDiv, translateButton, buttonElement) {
+    const explanation = explanationDiv.textContent.trim();
+    if (!explanation) {
+        showTemporaryMessage('解釋內容為空！', 'error');
+        return;
+    }
+    
+    // 显示加载状态
+    translateButton.classList.add('loading');
+    translateButton.textContent = '';
+    translateButton.disabled = true;
+    
+    try {
+        console.log('开始翻译解释:', explanation);
+        
+        // 使用免费的翻译API (MyMemory Translated)
+        const response = await fetch(
+            `https://api.mymemory.translated.net/get?q=${encodeURIComponent(explanation)}&langpair=en|zh-CN`
+        );
+        
+        if (!response.ok) {
+            throw new Error('翻译服务请求失败');
+        }
+        
+        const data = await response.json();
+        console.log('翻译响应:', data);
+        
+        if (data.responseStatus === 200 && data.responseData && data.responseData.translatedText) {
+            const translation = data.responseData.translatedText;
+            
+            // 显示悬浮窗
+            showTranslationTooltip(buttonElement, translation);
+            
+        } else {
+            throw new Error('翻译服务返回无效结果');
+        }
+        
+    } catch (error) {
+        console.error('翻译失败:', error);
+        showTemporaryMessage('翻譯失敗：' + error.message, 'error');
+    } finally {
+        // 恢复按钮状态
+        translateButton.classList.remove('loading');
+        translateButton.textContent = '译';
+        translateButton.disabled = false;
+    }
+}
+
+// 显示翻译悬浮窗
+function showTranslationTooltip(buttonElement, translation) {
+    // 移除现有的悬浮窗
+    const existingTooltip = document.querySelector('.translation-tooltip');
+    if (existingTooltip) {
+        existingTooltip.remove();
+    }
+    
+    // 创建悬浮窗
+    const tooltip = document.createElement('div');
+    tooltip.className = 'translation-tooltip';
+    tooltip.textContent = translation;
+    
+    // 添加到页面
+    document.body.appendChild(tooltip);
+    
+    // 计算位置（显示在按钮旁边）
+    const buttonRect = buttonElement.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+    
+    // 获取单词卡元素
+    const flashcard = buttonElement.closest('.flashcard');
+    const cardRect = flashcard.getBoundingClientRect();
+    
+    let left, top;
+    
+    // 优先显示在卡片右侧
+    if (window.innerWidth - cardRect.right > tooltipRect.width + 20) {
+        left = cardRect.right + 10;
+        top = buttonRect.top + window.scrollY;
+    } 
+    // 如果右侧空间不够，显示在左侧
+    else if (cardRect.left > tooltipRect.width + 20) {
+        left = cardRect.left - tooltipRect.width - 10;
+        top = buttonRect.top + window.scrollY;
+    }
+    // 如果左右都不够，显示在卡片上方
+    else {
+        left = cardRect.left + (cardRect.width - tooltipRect.width) / 2;
+        top = cardRect.top + window.scrollY - tooltipRect.height - 10;
+    }
+    
+    // 确保不超出视窗边界
+    left = Math.max(10, Math.min(left, window.innerWidth - tooltipRect.width - 10));
+    top = Math.max(10, top);
+    
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = top + 'px';
+    
+    // 添加点击其他地方关闭的功能
+    const closeTooltip = (e) => {
+        if (!tooltip.contains(e.target)) {
+            tooltip.remove();
+            document.removeEventListener('click', closeTooltip);
+        }
+    };
+    
+    // 延迟添加点击监听器，避免立即触发
+    setTimeout(() => {
+        document.addEventListener('click', closeTooltip);
+    }, 100);
+    
+    console.log('悬浮窗已显示:', translation);
+}
 
 // 翻译单词到中文
 async function translateWordToChinese(wordDiv, chineseNameDiv, translateButton, fileName) {
@@ -2173,6 +2349,30 @@ function setupInlineEditing(element, fileName, fieldType, onSave) {
                 await saveEditing();
             } else if (e.key === 'Escape') {
                 cancelEditing();
+            }
+        }
+    });
+    
+    // 貼上事件處理 - 只保留純文字
+    element.addEventListener('paste', (e) => {
+        if (isEditing) {
+            e.preventDefault();
+            
+            // 獲取剪貼簿的純文字內容
+            const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+            
+            // 插入純文字到當前光標位置
+            const selection = window.getSelection();
+            if (selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                range.deleteContents();
+                range.insertNode(document.createTextNode(text));
+                
+                // 將光標移到插入文字的末尾
+                range.setStartAfter(range.endContainer);
+                range.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(range);
             }
         }
     });

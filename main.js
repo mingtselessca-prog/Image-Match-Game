@@ -686,10 +686,18 @@ async function loadFlashcards() {
             applySavedSortMode();
             // 檢查所有翻譯按鈕的顯示狀態
             checkAllExplanationTranslateButtons();
-            // 更新群組指示器
-            if (groupManager) {
-                groupManager.updateCardGroupIndicators();
-                groupManager.filterCardsByGroups();
+            // 更新群組指示器，使用全局變量並檢查初始化狀態
+            if (window.groupManager && window.groupManager.initialized) {
+                window.groupManager.updateCardGroupIndicators();
+                window.groupManager.filterCardsByGroups();
+            } else {
+                // 如果GroupManager還沒初始化，延遲執行
+                setTimeout(() => {
+                    if (window.groupManager && window.groupManager.initialized) {
+                        window.groupManager.updateCardGroupIndicators();
+                        window.groupManager.filterCardsByGroups();
+                    }
+                }, 1000);
             }
         }, 200);
         
@@ -1167,12 +1175,16 @@ function createLazyFlashcard(imageUrl, word, fileName, timestamp = Date.now(), a
         }
     }
     
-    // 異步添加群組指示器
-    setTimeout(() => {
-        if (groupManager) {
-            groupManager.updateSingleCardGroupIndicator(card, fileName);
+    // 異步添加群組指示器，確保GroupManager已初始化
+    const addGroupIndicator = () => {
+        if (window.groupManager && window.groupManager.initialized) {
+            window.groupManager.updateSingleCardGroupIndicator(card, fileName);
+        } else {
+            // 如果GroupManager還沒初始化，等待更長時間後重試
+            setTimeout(addGroupIndicator, 500);
         }
-    }, 100);
+    };
+    setTimeout(addGroupIndicator, 100);
 }
 
 // 修改 createFlashcard 函數，添加漸進式載入效果（用於直接載入的圖片）
@@ -1349,18 +1361,41 @@ function createFlashcard(imageUrl, word, fileName, timestamp = Date.now()) {
         flashcardsDiv.appendChild(card);
     }
     
-    // 異步添加群組指示器
-    setTimeout(() => {
-        if (groupManager) {
-            groupManager.updateSingleCardGroupIndicator(card, fileName);
+    // 異步添加群組指示器，確保GroupManager已初始化
+    const addGroupIndicator = () => {
+        if (window.groupManager && window.groupManager.initialized) {
+            window.groupManager.updateSingleCardGroupIndicator(card, fileName);
+        } else {
+            // 如果GroupManager還沒初始化，等待更長時間後重試
+            setTimeout(addGroupIndicator, 500);
         }
-    }, 100);
+    };
+    setTimeout(addGroupIndicator, 100);
 }
 
 // 在初始化部分添加拖放事件監聽
 document.addEventListener('DOMContentLoaded', () => {
-    // 初始化群組管理器
-    groupManager = new GroupManager();
+    // 檢查CSS是否正確載入
+    const testElement = document.createElement('div');
+    testElement.className = 'groups-section';
+    document.body.appendChild(testElement);
+    const computedStyle = window.getComputedStyle(testElement);
+    console.log('Groups section CSS loaded:', computedStyle.display);
+    document.body.removeChild(testElement);
+    
+    // 檢查關鍵DOM元素是否存在
+    const addGroupBtn = document.getElementById('addGroupBtn');
+    const noGroupBtn = document.getElementById('noGroupBtn');
+    const groupsList = document.getElementById('groupsList');
+    
+    console.log('DOM elements check:', {
+        addGroupBtn: !!addGroupBtn,
+        noGroupBtn: !!noGroupBtn,
+        groupsList: !!groupsList
+    });
+    
+    // 初始化群組管理器，設為全局變量
+    window.groupManager = new GroupManager();
     
     const dropZone = document.getElementById('dropZone');
     
@@ -2300,59 +2335,102 @@ let currentEditingGroup = null;
 class GroupManager {
     constructor() {
         this.showNoGroupCards = true; // 預設顯示無群組卡片
-        this.initializeEventListeners();
-        this.loadGroupsFromCloud();
+        this.initialized = false;
+        
+        // 確保DOM已準備好再初始化
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                this.initialize();
+            });
+        } else {
+            this.initialize();
+        }
+    }
+
+    initialize() {
+        if (this.initialized) return;
+        
+        try {
+            this.initializeEventListeners();
+            this.loadGroupsFromCloud();
+            this.initialized = true;
+            console.log('GroupManager initialized successfully');
+            
+            // 發送全局事件通知GroupManager已準備好
+            window.dispatchEvent(new CustomEvent('groupManagerReady'));
+            
+        } catch (error) {
+            console.error('GroupManager initialization failed:', error);
+            // 重試初始化
+            setTimeout(() => {
+                if (!this.initialized) {
+                    this.initialize();
+                }
+            }, 1000);
+        }
     }
 
     // 初始化事件監聽器
     initializeEventListeners() {
         // 新增群組按鈕
-        document.getElementById('addGroupBtn').addEventListener('click', () => {
-            this.showGroupEditModal();
-        });
+        const addGroupBtn = document.getElementById('addGroupBtn');
+        if (addGroupBtn) {
+            console.log('Adding event listener to addGroupBtn');
+            addGroupBtn.addEventListener('click', () => {
+                console.log('Add group button clicked');
+                this.showGroupEditModal();
+            });
+        } else {
+            console.error('addGroupBtn element not found');
+        }
 
         // 無群組按鈕
-        document.getElementById('noGroupBtn').addEventListener('click', () => {
-            this.toggleNoGroupVisibility();
-        });
+        const noGroupBtn = document.getElementById('noGroupBtn');
+        if (noGroupBtn) {
+            noGroupBtn.addEventListener('click', () => {
+                this.toggleNoGroupVisibility();
+            });
+        } else {
+            console.error('noGroupBtn element not found');
+        }
 
         // 群組編輯彈窗事件
-        document.getElementById('groupConfirmBtn').addEventListener('click', () => {
+        this.safeAddEventListener('groupConfirmBtn', 'click', () => {
             this.handleGroupSave();
         });
 
-        document.getElementById('groupCancelBtn').addEventListener('click', () => {
+        this.safeAddEventListener('groupCancelBtn', 'click', () => {
             this.hideGroupEditModal();
         });
 
-        document.getElementById('groupModalCloseBtn').addEventListener('click', () => {
+        this.safeAddEventListener('groupModalCloseBtn', 'click', () => {
             this.hideGroupEditModal();
         });
 
         // 刪除群組事件
-        document.getElementById('groupDeleteBtn').addEventListener('click', () => {
+        this.safeAddEventListener('groupDeleteBtn', 'click', () => {
             this.showDeleteGroupModal();
         });
 
         // 刪除群組確認彈窗事件
-        document.getElementById('deleteGroupConfirmBtn').addEventListener('click', () => {
+        this.safeAddEventListener('deleteGroupConfirmBtn', 'click', () => {
             this.handleGroupDelete();
         });
         
-        document.getElementById('deleteGroupCancelBtn').addEventListener('click', () => {
+        this.safeAddEventListener('deleteGroupCancelBtn', 'click', () => {
             this.hideDeleteGroupModal();
         });
         
-        document.getElementById('deleteGroupModalCloseBtn').addEventListener('click', () => {
+        this.safeAddEventListener('deleteGroupModalCloseBtn', 'click', () => {
             this.hideDeleteGroupModal();
         });
 
         // 群組選擇彈窗事件
-        document.getElementById('groupSelectCancelBtn').addEventListener('click', () => {
+        this.safeAddEventListener('groupSelectCancelBtn', 'click', () => {
             this.hideGroupSelectModal();
         });
 
-        document.getElementById('groupSelectModalCloseBtn').addEventListener('click', () => {
+        this.safeAddEventListener('groupSelectModalCloseBtn', 'click', () => {
             this.hideGroupSelectModal();
         });
 
@@ -2363,6 +2441,16 @@ class GroupManager {
                 this.hideGroupSelectModal();
             }
         });
+    }
+
+    // 安全添加事件監聽器的輔助方法
+    safeAddEventListener(elementId, event, handler) {
+        const element = document.getElementById(elementId);
+        if (element) {
+            element.addEventListener(event, handler);
+        } else {
+            console.warn(`Element with id '${elementId}' not found, skipping event listener`);
+        }
     }
 
     // 創建新群組
@@ -2430,16 +2518,22 @@ class GroupManager {
     // 更新無群組按鈕狀態
     updateNoGroupButton() {
         const noGroupBtn = document.getElementById('noGroupBtn');
-        if (this.showNoGroupCards) {
-            noGroupBtn.classList.remove('inactive');
-        } else {
-            noGroupBtn.classList.add('inactive');
+        if (noGroupBtn) {
+            if (this.showNoGroupCards) {
+                noGroupBtn.classList.remove('inactive');
+            } else {
+                noGroupBtn.classList.add('inactive');
+            }
         }
     }
 
     // 渲染群組按鈕
     renderGroups() {
         const groupsList = document.getElementById('groupsList');
+        if (!groupsList) {
+            console.error('groupsList element not found');
+            return;
+        }
         
         // 保留新增群組按鈕和無群組按鈕，只移除其他群組按鈕
         const existingGroupButtons = groupsList.querySelectorAll('.group-button');
@@ -2486,6 +2580,11 @@ class GroupManager {
         const nameInput = document.getElementById('groupNameInput');
         const deleteBtn = document.getElementById('groupDeleteBtn');
 
+        if (!modal || !title || !nameInput || !deleteBtn) {
+            console.error('Group edit modal elements not found');
+            return;
+        }
+
         if (group) {
             title.textContent = '編輯群組';
             nameInput.value = group.name;
@@ -2503,7 +2602,10 @@ class GroupManager {
 
     // 隱藏群組編輯彈窗
     hideGroupEditModal() {
-        document.getElementById('groupEditModal').classList.remove('show');
+        const modal = document.getElementById('groupEditModal');
+        if (modal) {
+            modal.classList.remove('show');
+        }
         currentEditingGroup = null;
     }
 
@@ -2514,18 +2616,30 @@ class GroupManager {
         const modal = document.getElementById('deleteGroupModal');
         const groupNameSpan = document.getElementById('deleteGroupName');
         
+        if (!modal || !groupNameSpan) {
+            console.error('Delete group modal elements not found');
+            return;
+        }
+        
         groupNameSpan.textContent = currentEditingGroup.name;
         modal.classList.add('show');
     }
 
     // 隱藏刪除群組確認彈窗
     hideDeleteGroupModal() {
-        document.getElementById('deleteGroupModal').classList.remove('show');
+        const modal = document.getElementById('deleteGroupModal');
+        if (modal) {
+            modal.classList.remove('show');
+        }
     }
 
     // 渲染顏色選擇器
     renderColorPicker(selectedColor) {
         const colorPicker = document.getElementById('colorPicker');
+        if (!colorPicker) {
+            console.error('colorPicker element not found');
+            return;
+        }
         colorPicker.innerHTML = '';
 
         GROUP_COLORS.forEach(color => {
@@ -2687,6 +2801,11 @@ class GroupManager {
     showGroupSelectModal(fileName) {
         const modal = document.getElementById('groupSelectModal');
         const groupsList = document.getElementById('groupSelectList');
+
+        if (!modal || !groupsList) {
+            console.error('Group select modal elements not found');
+            return;
+        }
         
         groupsList.innerHTML = '';
         
@@ -2723,7 +2842,10 @@ class GroupManager {
 
     // 隱藏群組選擇彈窗
     hideGroupSelectModal() {
-        document.getElementById('groupSelectModal').classList.remove('show');
+        const modal = document.getElementById('groupSelectModal');
+        if (modal) {
+            modal.classList.remove('show');
+        }
     }
 
     // 分配卡片到群組

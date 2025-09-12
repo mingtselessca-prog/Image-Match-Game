@@ -1199,7 +1199,8 @@ body.edit-mode .flashcard .explanation-div:empty::before {
 
 /* 群組管理區域樣式 */
 .groups-section {
-    margin: 20px 0;
+    margin: 20px 0 !important;
+    display: block !important;
 }
 
 
@@ -1228,17 +1229,17 @@ body.edit-mode .flashcard .explanation-div:empty::before {
 
 /* 無群組按鈕樣式 */
 .no-group-button {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    background-color: #666666;
-    border: 2px solid transparent;
-    border-radius: 50%;
-    cursor: pointer;
-    transition: all 0.2s ease;
+    position: relative !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 36px !important;
+    height: 36px !important;
+    background-color: #666666 !important;
+    border: 2px solid transparent !important;
+    border-radius: 50% !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
 }
 
 .no-group-button:hover {
@@ -1256,10 +1257,11 @@ body.edit-mode .flashcard .explanation-div:empty::before {
 }
 
 .groups-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    min-height: 40px;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+    min-height: 40px !important;
+    align-items: center !important;
 }
 
 /* 群組按鈕樣式 */

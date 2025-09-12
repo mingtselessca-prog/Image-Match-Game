@@ -324,9 +324,9 @@ body.edit-mode .flashcard .translate-button {
     display: flex;
 }
 
-/* 解释翻译按钮在所有模式下都显示 */
+/* 解释翻译按钮在所有模式下都显示（但只有当解释有内容时才显示） */
 .flashcard .explanation-translate-button {
-    display: flex !important;
+    display: none;
 }
 
 .flashcard .chinese-name-div:hover {

@@ -495,7 +495,11 @@ async function saveImageToSupabase(imageUrl, searchTerm) {
                         
                         if (wordDiv) wordDiv.textContent = word;
                         if (chineseNameDiv) chineseNameDiv.textContent = chineseName;
-                        if (explanationDiv) explanationDiv.textContent = explanation;
+                        if (explanationDiv) {
+                            explanationDiv.textContent = explanation;
+                            // 检查解释翻译按钮显示
+                            updateExplanationTranslateButtonVisibility(explanationDiv);
+                        }
                         
                         // 检查图片元素状态
                         console.log('卡片创建后检查:', {
@@ -990,7 +994,7 @@ function speakWord(word) {
     if (word) {
         responsiveVoice.cancel(); // 如果有正在播放的語音，先停止
         responsiveVoice.speak(word, "US English Male", {
-            rate: 1,
+            rate: 0.8,
             pitch: 1,
             volume: 1
         });
@@ -1830,6 +1834,17 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// 检查解释内容并控制翻译按钮显示
+function updateExplanationTranslateButtonVisibility(explanationDiv) {
+    const explanationContainer = explanationDiv.parentElement;
+    const translateButton = explanationContainer.querySelector('.explanation-translate-button');
+    
+    if (translateButton) {
+        const hasContent = explanationDiv.textContent.trim().length > 0;
+        translateButton.style.display = hasContent ? 'flex' : 'none';
+    }
+}
+
 // 为卡片加载完整数据
 async function loadCardDataForCard(wordDiv, chineseNameDiv, explanationDiv, fileName) {
     try {
@@ -1843,11 +1858,17 @@ async function loadCardDataForCard(wordDiv, chineseNameDiv, explanationDiv, file
         chineseNameDiv.textContent = cardData.chineseName;
         explanationDiv.textContent = cardData.explanation;
         
+        // 检查解释内容并控制翻译按钮显示
+        updateExplanationTranslateButtonVisibility(explanationDiv);
+        
         console.log('已加载卡片数据:', fileName, cardData);
     } catch (error) {
         console.error('加载卡片数据失败:', fileName, error);
         chineseNameDiv.textContent = '';
         explanationDiv.textContent = '';
+        
+        // 即使加载失败也要检查翻译按钮显示
+        updateExplanationTranslateButtonVisibility(explanationDiv);
     }
 }
 
@@ -2428,6 +2449,11 @@ function setupInlineEditing(element, fileName, fieldType, onSave) {
             element.contentEditable = false;
             element.classList.remove('editing');
             isEditing = false;
+            
+            // 如果是解释字段，检查翻译按钮显示
+            if (fieldType === 'explanation') {
+                updateExplanationTranslateButtonVisibility(element);
+            }
             
             // 显示保存成功提示
             showTemporaryMessage(`${getFieldDisplayName(fieldType)}已保存`, 'success');

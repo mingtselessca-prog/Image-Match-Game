@@ -682,6 +682,8 @@ async function loadFlashcards() {
         // 載入完成後套用保存的排序狀態
         setTimeout(() => {
             applySavedSortMode();
+            // 檢查所有翻譯按鈕的顯示狀態
+            checkAllExplanationTranslateButtons();
         }, 200);
         
     } catch (error) {
@@ -992,9 +994,12 @@ document.addEventListener('DOMContentLoaded', () => {
 // 修改speakWord函數
 function speakWord(word) {
     if (word) {
+        // 從設定中獲取語速，如果沒有則使用默認值0.8
+        const speechRate = parseFloat(localStorage.getItem('speechRate')) || 0.8;
+        
         responsiveVoice.cancel(); // 如果有正在播放的語音，先停止
         responsiveVoice.speak(word, "US English Male", {
-            rate: 0.8,
+            rate: speechRate,
             pitch: 1,
             volume: 1
         });
@@ -1541,6 +1546,40 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // 添加語速控制
+    const speechRateSlider = document.getElementById('speechRate');
+    const speechRateValueDisplay = document.getElementById('speechRateValue');
+    
+    if (speechRateSlider) {
+        // 載入保存的語速設置
+        loadSpeechRateFromCloud().then(savedRate => {
+            if (savedRate !== null) {
+                speechRateSlider.value = savedRate;
+                updateSpeechRateDisplay(savedRate);
+            } else {
+                // 如果雲端沒有，嘗試從本地載入
+                const localRate = localStorage.getItem('speechRate');
+                if (localRate) {
+                    speechRateSlider.value = localRate;
+                    updateSpeechRateDisplay(localRate);
+                }
+            }
+        });
+
+        speechRateSlider.addEventListener('input', (e) => {
+            const rate = e.target.value;
+            updateSpeechRateDisplay(rate);
+        });
+
+        speechRateSlider.addEventListener('change', async (e) => {
+            const rate = e.target.value;
+            // 保存到本地
+            localStorage.setItem('speechRate', rate);
+            // 保存到雲端
+            await saveSpeechRateToCloud(rate);
+        });
+    }
+
     // 添加编辑模式切换功能
     const toggleEditModeBtn = document.getElementById('toggleEditMode');
     
@@ -1740,6 +1779,67 @@ function updateCardSize(size) {
     document.getElementById('sizeValue').textContent = size + 'px';
 }
 
+// 添加更新語速顯示的函數
+function updateSpeechRateDisplay(rate) {
+    document.getElementById('speechRateValue').textContent = rate + 'x';
+}
+
+// 保存語速設置到雲端
+async function saveSpeechRateToCloud(rate) {
+    try {
+        const { data, error } = await supabaseClient
+            .from('flashcard_explanations')
+            .upsert({
+                file_name: '__SPEECH_RATE_SETTING__',
+                word: 'speech_rate',
+                chinese_name: '',
+                explanation: rate.toString(),
+                updated_at: new Date().toISOString()
+            }, {
+                onConflict: 'file_name'
+            });
+
+        if (error) {
+            console.warn('保存語速設置到雲端失敗:', error);
+        } else {
+            console.log('語速設置已保存到雲端:', rate);
+        }
+    } catch (error) {
+        console.warn('保存語速設置到雲端時發生錯誤:', error);
+    }
+}
+
+// 從雲端載入語速設置
+async function loadSpeechRateFromCloud() {
+    try {
+        const { data, error } = await supabaseClient
+            .from('flashcard_explanations')
+            .select('explanation')
+            .eq('file_name', '__SPEECH_RATE_SETTING__')
+            .single();
+
+        if (error) {
+            if (error.code === 'PGRST116') {
+                console.log('雲端沒有語速設置，使用默認值');
+                return null;
+            }
+            throw error;
+        }
+
+        const rate = parseFloat(data?.explanation);
+        if (isNaN(rate) || rate < 0.3 || rate > 1) {
+            console.warn('雲端語速設置無效，使用默認值');
+            return null;
+        }
+
+        console.log('從雲端載入語速設置:', rate);
+        return rate;
+    } catch (error) {
+        console.warn('從雲端載入語速設置失敗:', error);
+        return null;
+    }
+}
+
 // 添加臨時提示函數
 function showTemporaryMessage(message, type = 'success') {
     const messageDiv = document.createElement('div');
@@ -1841,8 +1941,26 @@ function updateExplanationTranslateButtonVisibility(explanationDiv) {
     
     if (translateButton) {
         const hasContent = explanationDiv.textContent.trim().length > 0;
-        translateButton.style.display = hasContent ? 'flex' : 'none';
+        if (hasContent) {
+            translateButton.style.display = 'flex';
+            translateButton.style.setProperty('display', 'flex', 'important');
+        } else {
+            translateButton.style.display = 'none';
+            translateButton.style.setProperty('display', 'none', 'important');
+        }
+        console.log('翻譯按鈕顯示狀態更新:', hasContent ? '顯示' : '隱藏', '解釋內容:', explanationDiv.textContent.trim());
     }
+}
+
+// 檢查所有解釋翻譯按鈕的顯示狀態
+function checkAllExplanationTranslateButtons() {
+    const allExplanationDivs = document.querySelectorAll('.explanation-div');
+    console.log('開始檢查所有翻譯按鈕，找到', allExplanationDivs.length, '個解釋字段');
+    
+    allExplanationDivs.forEach((explanationDiv, index) => {
+        console.log(`檢查解釋字段 ${index + 1}:`, explanationDiv.textContent.trim());
+        updateExplanationTranslateButtonVisibility(explanationDiv);
+    });
 }
 
 // 为卡片加载完整数据

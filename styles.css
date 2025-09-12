@@ -326,7 +326,7 @@ body.edit-mode .flashcard .translate-button {
 
 /* 解释翻译按钮在所有模式下都显示（但只有当解释有内容时才显示） */
 .flashcard .explanation-translate-button {
-    display: none;
+    display: none !important;
 }
 
 .flashcard .chinese-name-div:hover {
@@ -850,6 +850,31 @@ body.edit-mode .flashcard .explanation-div:empty::before {
 }
 
 .size-control span {
+    display: block;
+    text-align: center;
+    color: #a0aec0;
+    font-size: 0.9em;
+}
+
+.speech-rate-control {
+    margin: 10px 0;
+    padding: 5px;
+    border-top: 1px solid #404040;
+    border-bottom: 1px solid #404040;
+}
+
+.speech-rate-control label {
+    display: block;
+    margin-bottom: 5px;
+    color: #a0aec0;
+}
+
+.speech-rate-control input[type="range"] {
+    width: 100%;
+    margin: 5px 0;
+}
+
+.speech-rate-control span {
     display: block;
     text-align: center;
     color: #a0aec0;

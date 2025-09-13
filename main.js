@@ -2318,15 +2318,21 @@ const deleteConfirmModal = new DeleteConfirmModal();
 let groups = []; // 存儲所有群組
 let cardGroups = {}; // 存儲每張卡片的群組分配 {fileName: groupId}
 
-// 24種預設顏色
-const GROUP_COLORS = [
-    '#e53e3e', '#d53f8c', '#9f7aea', '#667eea',
-    '#4299e1', '#0bc5ea', '#00b5d8', '#38b2ac',
-    '#48bb78', '#68d391', '#9ae6b4', '#c6f6d5',
-    '#f6e05e', '#ed8936', '#fd9801', '#ff6b35',
-    '#ff5722', '#e91e63', '#9c27b0', '#673ab7',
-    '#3f51b5', '#2196f3', '#03a9f4', '#00bcd4'
+// 46種預設顏色，按組分類
+const COLOR_GROUPS = [
+    ['#B1B6B4', '#6171F1', '#504EAA', '#E2E0D4', '#111524'],
+    ['#004DFF', '#FF9040', '#FF5050', '#A200FF', '#111441'],
+    ['#99D31B', '#E2B9B5', '#64C5C7', '#FA5032'],
+    ['#0275B1', '#DEB9CB', '#FFC23D', '#FF7751', '#F53B29', '#C41E32', '#4E0875'],
+    ['#FCE214', '#CD9CC3', '#F5E9A6', '#B6B87B', '#BDD9AA'],
+    ['#5DF4B4', '#F11118', '#FFE129', '#F5B0B7', '#FFB2B4'],
+    ['#1B988B', '#ED217C', '#2D3047', '#FFFD82', '#FF9B71'],
+    ['#5CE3B7', '#D9D1D6', '#F4F3DD', '#F71BAE', '#244B17'],
+    ['#5D64BE', '#B9B051', '#F679B0', '#F5B475', '#F1F1D8']
 ];
+
+// 展平的顏色陣列（向後兼容）
+const GROUP_COLORS = COLOR_GROUPS.flat();
 
 // 當前編輯的群組
 let currentEditingGroup = null;
@@ -2546,8 +2552,50 @@ class GroupManager {
             const groupButton = document.createElement('button');
             groupButton.className = `group-button ${!group.visible ? 'inactive' : ''}`;
             groupButton.style.backgroundColor = group.color;
-            groupButton.textContent = group.name;
+            
+            // 截斷群組名稱，只顯示前5個字
+            const truncatedName = group.name.length > 5 ? group.name.substring(0, 5) : group.name;
+            groupButton.textContent = truncatedName;
             groupButton.dataset.groupId = group.id;
+            
+            // 如果名稱被截斷，添加懸浮視窗功能
+            if (group.name.length > 5) {
+                groupButton.dataset.fullName = group.name;
+                groupButton.dataset.groupColor = group.color;
+                
+                // 滑鼠懸浮事件
+                groupButton.addEventListener('mouseenter', function(e) {
+                    // 創建懸浮視窗
+                    const tooltip = document.createElement('div');
+                    tooltip.className = 'group-tooltip';
+                    tooltip.textContent = this.dataset.fullName;
+                    tooltip.style.backgroundColor = this.dataset.groupColor;
+                    
+                    // 設置箭頭顏色與背景色一致
+                    tooltip.style.setProperty('--tooltip-bg-color', this.dataset.groupColor);
+                    
+                    // 設置懸浮視窗位置
+                    const rect = this.getBoundingClientRect();
+                    tooltip.style.left = rect.left + 'px';
+                    tooltip.style.top = (rect.bottom + 5) + 'px';
+                    
+                    // 添加到頁面
+                    document.body.appendChild(tooltip);
+                    this.dataset.tooltipId = 'tooltip-' + Date.now();
+                    tooltip.id = this.dataset.tooltipId;
+                });
+                
+                groupButton.addEventListener('mouseleave', function() {
+                    // 移除懸浮視窗
+                    if (this.dataset.tooltipId) {
+                        const tooltip = document.getElementById(this.dataset.tooltipId);
+                        if (tooltip) {
+                            tooltip.remove();
+                        }
+                        delete this.dataset.tooltipId;
+                    }
+                });
+            }
 
             // 添加編輯圖標
             const editIcon = document.createElement('div');
@@ -2642,20 +2690,28 @@ class GroupManager {
         }
         colorPicker.innerHTML = '';
 
-        GROUP_COLORS.forEach(color => {
-            const colorOption = document.createElement('div');
-            colorOption.className = `color-option ${color === selectedColor ? 'selected' : ''}`;
-            colorOption.style.backgroundColor = color;
-            colorOption.dataset.color = color;
+        COLOR_GROUPS.forEach((colorGroup, groupIndex) => {
+            // 創建顏色組容器
+            const groupContainer = document.createElement('div');
+            groupContainer.className = 'color-group';
+            
+            colorGroup.forEach(color => {
+                const colorOption = document.createElement('div');
+                colorOption.className = `color-option ${color === selectedColor ? 'selected' : ''}`;
+                colorOption.style.backgroundColor = color;
+                colorOption.dataset.color = color;
 
-            colorOption.addEventListener('click', () => {
-                document.querySelectorAll('.color-option').forEach(opt => {
-                    opt.classList.remove('selected');
+                colorOption.addEventListener('click', () => {
+                    document.querySelectorAll('.color-option').forEach(opt => {
+                        opt.classList.remove('selected');
+                    });
+                    colorOption.classList.add('selected');
                 });
-                colorOption.classList.add('selected');
-            });
 
-            colorPicker.appendChild(colorOption);
+                groupContainer.appendChild(colorOption);
+            });
+            
+            colorPicker.appendChild(groupContainer);
         });
     }
 
@@ -2779,8 +2835,26 @@ class GroupManager {
             const group = groups.find(g => g.id === cardGroupId);
             if (group) {
                 indicator.style.backgroundColor = group.color;
-                indicator.textContent = group.name;
+                
+                // 截斷群組名稱，只顯示前5個字
+                const truncatedName = group.name.length > 5 ? group.name.substring(0, 5) : group.name;
+                indicator.textContent = truncatedName;
                 indicator.classList.remove('no-group');
+                
+                // 如果名稱被截斷，添加懸浮展開功能
+                if (group.name.length > 5) {
+                    indicator.dataset.fullName = group.name;
+                    indicator.dataset.truncatedName = truncatedName;
+                    
+                    // 滑鼠懸浮事件
+                    indicator.addEventListener('mouseenter', function() {
+                        this.textContent = this.dataset.fullName;
+                    });
+                    
+                    indicator.addEventListener('mouseleave', function() {
+                        this.textContent = this.dataset.truncatedName;
+                    });
+                }
             } else {
                 // 群組不存在時顯示灰色圓圈
                 indicator.classList.add('no-group');

@@ -2606,6 +2606,14 @@ class GroupManager {
             // 群組按鈕點擊事件（切換可見性）
             groupButton.addEventListener('click', (e) => {
                 if (!e.target.classList.contains('edit-icon')) {
+                    // 移除懸停視窗（如果存在）
+                    if (e.currentTarget.dataset.tooltipId) {
+                        const tooltip = document.getElementById(e.currentTarget.dataset.tooltipId);
+                        if (tooltip) {
+                            tooltip.remove();
+                        }
+                        delete e.currentTarget.dataset.tooltipId;
+                    }
                     this.toggleGroupVisibility(group.id);
                 }
             });
